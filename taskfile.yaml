@@ -1,0 +1,54 @@
+version: '3'
+
+tasks:
+  run:
+    desc: "Run backend API server"
+    cmds:
+      - go run ./cmd/api
+
+  build:
+    desc: "Build production binaries"
+    cmds:
+      - go build -ldflags="-s -w" -o bin/api.exe ./cmd/api
+      - go build -ldflags="-s -w" -o bin/migrate.exe ./cmd/migrate
+      - go build -ldflags="-s -w" -o bin/seed.exe ./cmd/seed
+
+  migrate:up:
+    desc: "Run database migrations up"
+    cmds:
+      - go run ./cmd/migrate up
+
+  migrate:down:
+    desc: "Rollback database migrations down"
+    cmds:
+      - go run ./cmd/migrate down
+
+  seed:
+    desc: "Seed initial admin user and sample data"
+    cmds:
+      - go run ./cmd/seed
+
+  docker:up:
+    desc: "Start PostgreSQL, Redis, and Backend in Docker"
+    cmds:
+      - docker compose up -d
+
+  docker:down:
+    desc: "Stop Docker containers"
+    cmds:
+      - docker compose down
+
+  test:
+    desc: "Run unit tests"
+    cmds:
+      - go test -v ./...
+
+  vet:
+    desc: "Vet codebase"
+    cmds:
+      - go vet ./...
+
+  tidy:
+    desc: "Tidy Go modules"
+    cmds:
+      - go mod tidy

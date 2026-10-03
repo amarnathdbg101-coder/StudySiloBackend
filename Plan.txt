@@ -1,0 +1,75 @@
+📚 Student-Specific AI App – Systemic Blueprint
+1. 🎯 Core Objectives
+Personalized study companion for students.
+
+Flexible output: text, diagrams, mind maps, PDFs, presentations.
+
+Adaptive learning: quizzes, progress tracking, weak area analysis.
+
+Multi-modal input: text, voice, image (handwritten problem solving).
+
+2. 🏗️ Architecture Overview
+Frontend (Flutter)
+Cross-platform polished UI.
+
+Rendering modes:
+
+Text explanations.
+
+Diagrams (CustomPainter, CanvasKit).
+
+Mind maps (interactive nodes).
+
+PDF viewer.
+
+Local storage (Hive/Drift) for offline notes/quizzes.
+
+State management (Riverpod).
+
+Backend (Go)
+
+Framework: Fiber (fast, minimal).
+
+Database: PostgreSQL (notes, quizzes, progress).
+
+AI orchestration:
+
+LLM APIs (OpenAI, Claude, Gemini).
+
+Key rotation system (automatic swap when quota hit).
+
+Study-specific modules:
+
+Diagram generator (JSON → frontend render).
+
+PDF generator (summaries, quizzes, notes export).
+
+Adaptive quiz engine.
+
+Security: JWT auth, role-based access.
+
+3. 🔑 Core Features
+AI Tutor → Explain concepts step-by-step.
+
+Notes Analyzer → Convert notes into summaries, flashcards, quizzes.
+
+Adaptive Quiz Engine → Personalized quizzes + analytics.
+
+Diagram/Mind Map Generator → Flowcharts, scratch-style drawings, mind maps.
+
+PDF Export → Study material, quizzes, notes.
+
+Productivity Tools → Reminders, study planner.
+
+4. ⚙️ Workflow Example
+Student login → JWT auth.
+
+Dashboard → progress, notes, quizzes.
+
+Ask doubt → Flutter → Go backend → AI API → response.
+
+Upload notes → backend → AI summarizer → flashcards generated.
+
+Attempt quiz → backend adaptive logic → results stored in DB.
+
+Export study material → backend PDF generator → frontend viewer.
