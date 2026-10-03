@@ -45,6 +45,15 @@ Follow these guidelines strictly:
 		userQuery = fmt.Sprintf("Context from student's notes:\n\"%s\"\n\nStudent Doubt:\n%s", req.ContextNotes, req.Question)
 	}
 
+	provider := req.Provider
+	if provider == "" {
+		provider = "google"
+	}
+	modelName := req.Model
+	if modelName == "" {
+		modelName = "gemini-3.8-flash"
+	}
+
 	var answerText string
 	var err error
 
@@ -56,12 +65,12 @@ Follow these guidelines strictly:
 			if mime == "" {
 				mime = "image/jpeg"
 			}
-			answerText, err = s.orchestrator.GenerateVision(ctx, systemPrompt, userQuery, imgBytes, mime)
+			answerText, err = s.orchestrator.GenerateVisionWithModel(ctx, provider, modelName, systemPrompt, userQuery, imgBytes, mime)
 		} else {
-			answerText, err = s.orchestrator.GenerateText(ctx, systemPrompt, userQuery)
+			answerText, err = s.orchestrator.GenerateTextWithModel(ctx, provider, modelName, systemPrompt, userQuery)
 		}
 	} else {
-		answerText, err = s.orchestrator.GenerateText(ctx, systemPrompt, userQuery)
+		answerText, err = s.orchestrator.GenerateTextWithModel(ctx, provider, modelName, systemPrompt, userQuery)
 	}
 
 	if err != nil && answerText == "" {
@@ -87,6 +96,8 @@ Follow these guidelines strictly:
 		CoreConcept:      coreConcept,
 		CommonPitfalls:   commonPitfalls,
 		FollowUpChips:    followUpChips,
+		ActiveProvider:   provider,
+		ActiveModel:      modelName,
 	}
 
 	// Persist to chat messages if user is authenticated

@@ -11,6 +11,8 @@ type DoubtRequest struct {
 	ImageBase64   string `json:"image_base64"`
 	ImageMimeType string `json:"image_mime_type"`
 	ContextNotes  string `json:"context_notes"`
+	Provider      string `json:"provider"`
+	Model         string `json:"model"`
 }
 
 type DoubtResponse struct {
@@ -19,6 +21,8 @@ type DoubtResponse struct {
 	CoreConcept      string   `json:"core_concept"`
 	CommonPitfalls   string   `json:"common_pitfalls"`
 	FollowUpChips    []string `json:"follow_up_chips"`
+	ActiveProvider   string   `json:"active_provider"`
+	ActiveModel      string   `json:"active_model"`
 }
 
 // ---------------------------------------------------------------------------
@@ -31,6 +35,8 @@ type NotesAnalysisRequest struct {
 	IncludeFlashcards bool   `json:"include_flashcards"`
 	IncludeSummary    bool   `json:"include_summary"`
 	IncludeCheatSheet bool   `json:"include_cheat_sheet"`
+	Provider          string `json:"provider"`
+	Model             string `json:"model"`
 }
 
 type FlashcardItem struct {
@@ -56,6 +62,8 @@ type DiagramRequest struct {
 	Concept     string `json:"concept" validate:"required,min=2"`
 	DiagramType string `json:"diagram_type" validate:"omitempty,oneof=mindmap flowchart concept_tree"`
 	Depth       int    `json:"depth" validate:"omitempty,min=1,max=5"`
+	Provider    string `json:"provider"`
+	Model       string `json:"model"`
 }
 
 type MindMapNode struct {
