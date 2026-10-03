@@ -1,6 +1,9 @@
 # Multi-stage production Dockerfile
 # Stage 1: Build binary
-FROM golang:1.24-alpine AS builder
+FROM golang:alpine AS builder
+
+# Enable automatic Go toolchain switching if required by go.mod
+ENV GOTOOLCHAIN=auto
 
 WORKDIR /app
 
