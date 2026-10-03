@@ -13,6 +13,7 @@ type DoubtRequest struct {
 	ContextNotes  string `json:"context_notes"`
 	Provider      string `json:"provider"`
 	Model         string `json:"model"`
+	Mode          string `json:"mode"`
 }
 
 type DoubtResponse struct {
