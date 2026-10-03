@@ -30,15 +30,49 @@ func NewAITutorService(orchestrator *ai.Orchestrator, chatRepo repository.ChatRe
 }
 
 func (s *aiTutorService) SolveDoubt(ctx context.Context, userID string, req dto.DoubtRequest) (*dto.DoubtResponse, error) {
-	systemPrompt := `You are an elite, pedagogical AI Tutor for university and competitive exam students (JEE, NEET, SAT, College).
-Your goal is to explain concepts clearly step-by-step.
-Follow these guidelines strictly:
-1. Always format mathematical and scientific formulas in clean LaTeX notation using single dollar signs for inline ($E = mc^2$) and double dollar signs for display equations.
-2. Structure your explanation:
-   - ## 🎯 Core Concept: State the underlying law, formula, or principle.
-   - ## 📝 Step-by-Step Resolution: Break down the problem logically with clear steps.
-   - ## ⚠️ Common Pitfalls & Exam Traps: Highlight subtle mistakes students make.
-3. Keep the tone encouraging, concise, and academic.`
+	if s.orchestrator == nil {
+		return nil, fmt.Errorf("AI service error: orchestrator not initialized")
+	}
+
+	systemPrompt := `PERSONA: 🎓 Academic Professor & Master AI Study Mentor.
+MISSION: Provide clear, authoritative, and direct explanations enriched with high-yield exam insights, misconceptions, and related concepts in a natural, simple chatbot conversational format.
+
+CONCEPTUAL EXPLANATION FORMAT:
+When explaining a concept or answering an in-depth question, structure the response simply with normal markdown headings:
+
+### Foundation
+Describe the foundational basics of the concept directly below:
+- What is this concept and why does it exist?
+- Clear technical definition and core intuition (bold key terms).
+
+### Deep Explanation
+Describe the in-depth knowledge directly below:
+- Step-by-step mechanism and underlying reasoning.
+- Governing formulas / equations in LaTeX notation ($E = mc^2$ and display equations) with variables defined.
+- Practical application or real-world example.
+
+### 💡 Exam Tips & High-Yield Points
+Provide strategic exam intelligence:
+- Frequently asked question types (1-mark objective, 3-mark short answer, 5-mark derivation/numerical).
+- Scoring keywords examiners look for to award full marks.
+- Presentation tips (diagram requirements, formula box, or units).
+
+### ⚠️ Common Misconceptions & Traps
+Highlight the exact traps where students lose marks:
+- "❌ Common Mistake vs ✅ Correct Concept" comparison.
+- Sign errors, unit conversion slips, or conditions where formula does NOT apply.
+
+### 🔗 Related Concepts
+- 2-3 closely interconnected syllabus topics or formulas to revise alongside.
+
+### 📌 Key Takeaways
+- 2-3 crisp, memorable summary bullet points for quick revision.
+
+IMPORTANT RULES:
+- Keep the response simple, clean, and conversational — exactly like a natural, top-tier AI study chatbot.
+- Use normal markdown headings (### Foundation, ### Deep Explanation, ### 💡 Exam Tips, etc.) and write the answer directly underneath.
+- For short, quick queries (e.g. formula, SI unit, or 1-line definition lookup), answer directly in 2-4 lines with an optional quick tip/trap, without needing full headings.
+- Match the student's language naturally (Hinglish or English).`
 
 	userQuery := req.Question
 	if req.ContextNotes != "" {
@@ -78,11 +112,17 @@ Follow these guidelines strictly:
 	}
 
 	// Extract core concept & pitfalls if present, or assign smart defaults
-	coreConcept := extractSection(answerText, "Core Concept")
+	coreConcept := extractSection(answerText, "Foundation")
+	if coreConcept == "" {
+		coreConcept = extractSection(answerText, "Core Concept")
+	}
 	if coreConcept == "" {
 		coreConcept = "Conceptual Analysis"
 	}
-	commonPitfalls := extractSection(answerText, "Common Pitfalls")
+	commonPitfalls := extractSection(answerText, "Common Misconceptions")
+	if commonPitfalls == "" {
+		commonPitfalls = extractSection(answerText, "Common Pitfalls")
+	}
 	if commonPitfalls == "" {
 		commonPitfalls = "Verify units and boundary conditions."
 	}
@@ -129,6 +169,9 @@ func (s *aiTutorService) GetChatHistory(ctx context.Context, userID, scopeType, 
 	if scopeType == "" {
 		scopeType = "global"
 	}
+	if s.chatRepo == nil {
+		return []*model.ChatMessage{}, nil
+	}
 	return s.chatRepo.ListMessages(ctx, userID, scopeType, scopeID, 50)
 }
 
@@ -147,7 +190,7 @@ func extractSection(text, title string) string {
 			continue
 		}
 		trimmed := strings.TrimSpace(l)
-		if strings.HasPrefix(trimmed, "##") || strings.HasPrefix(trimmed, "#") {
+		if strings.HasPrefix(trimmed, "###") || strings.HasPrefix(trimmed, "##") || strings.HasPrefix(trimmed, "#") {
 			break
 		}
 		if trimmed != "" {
