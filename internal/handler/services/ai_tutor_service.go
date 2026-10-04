@@ -67,7 +67,39 @@ func (s *aiTutorService) SolveDoubt(ctx context.Context, userID string, req dto.
 
 	systemPrompt := buildTutorPrompt(req.Mode, req.Question, req.ContextNotes, targetExam, academicLevel, weakTopics)
 
+	// Extract session ID and build multi-turn conversation memory history
+	sessionID := req.SessionID
+	if sessionID == "" && (req.ScopeType == "chat" || req.ScopeType == "session") {
+		sessionID = req.ScopeID
+	}
+
+	var historyContext strings.Builder
+	if sessionID != "" && s.chatRepo != nil {
+		historyMsgs, err := s.chatRepo.ListSessionMessages(ctx, userID, sessionID, 10)
+		if err == nil && len(historyMsgs) > 0 {
+			historyContext.WriteString("[MULTI-TURN CONVERSATION HISTORY IN THIS SESSION]:\n")
+			for _, m := range historyMsgs {
+				if m.Role == "user" {
+					historyContext.WriteString(fmt.Sprintf("Student: %s\n", m.Content))
+				} else if m.Role == "assistant" {
+					respBrief := m.Content
+					if len(respBrief) > 350 {
+						respBrief = respBrief[:350] + "..."
+					}
+					historyContext.WriteString(fmt.Sprintf("AI Tutor: %s\n", respBrief))
+				}
+			}
+			historyContext.WriteString("\n")
+		}
+	}
+
 	userQuery := req.Question
+	if historyContext.Len() > 0 {
+		userQuery = fmt.Sprintf("%s[CURRENT STUDENT QUESTION]:\n%s", historyContext.String(), req.Question)
+	}
+	if req.ContextNotes != "" {
+		userQuery = fmt.Sprintf("%s\n\n%s", req.ContextNotes, userQuery)
+	}
 
 	provider := req.Provider
 	if provider == "" {
@@ -152,10 +184,6 @@ func (s *aiTutorService) SolveDoubt(ctx context.Context, userID string, req dto.
 		scopeType := req.ScopeType
 		if scopeType == "" {
 			scopeType = "chat"
-		}
-		sessionID := req.SessionID
-		if sessionID == "" && (scopeType == "chat" || scopeType == "session") {
-			sessionID = req.ScopeID
 		}
 
 		var sessionTitle string
@@ -308,57 +336,86 @@ func analyzeQuerySituation(userMessage, contextNotes string) string {
 `
 	}
 
-	isConversational := strings.Contains(query, "pdf") || strings.Contains(query, "kya tum") || strings.Contains(query, "can you") || strings.Contains(query, "kya kar sakte") || strings.Contains(query, "who are you") || strings.Contains(query, "kaun ho") || strings.Contains(query, "hello") || strings.Contains(query, "hi") || strings.Contains(query, "hey") || strings.Contains(query, "help")
-	if isConversational && wordCount <= 12 {
+	isConversational := query == "hi" || query == "hello" || query == "hey" || query == "hii" || query == "hlo" ||
+		strings.HasPrefix(query, "hi ") || strings.HasPrefix(query, "hello ") || strings.HasPrefix(query, "hey ") ||
+		strings.Contains(query, "pdf") || strings.Contains(query, "kya tum") || strings.Contains(query, "can you") ||
+		strings.Contains(query, "kya kar sakte") || strings.Contains(query, "who are you") || strings.Contains(query, "kaun ho") ||
+		strings.Contains(query, "kaise ho") || strings.Contains(query, "how are you") || strings.Contains(query, "aap kaun") ||
+		strings.Contains(query, "thanks") || strings.Contains(query, "shukriya") || strings.Contains(query, "thank you") ||
+		strings.Contains(query, "good morning") || strings.Contains(query, "good night") || strings.Contains(query, "good evening") ||
+		strings.Contains(query, "help me") || (query == "help")
+	if isConversational && wordCount <= 15 {
 		return fmt.Sprintf(`%s
 💬 SITUATION: CONVERSATIONAL & APP CAPABILITY QUESTION
-- The student is asking about app features (like PDF generation, study assistance) or having a natural conversational chat.
-- Directly, warmly, and helpfully answer what they asked in their language (Hinglish/Hindi/English).
-- For PDF questions, clearly explain: "Haan, StudySilo me aap kisi bhi note, study guide ya formula sheet ko 'Export to PDF' button se PDF format me download kar sakte hain!"
-- NEVER output artificial academic headings, formulas, or tables for conversational questions.`, levelDirective)
+- The student is having a natural conversational chat or asking about app features.
+- Directly, warmly, and helpfully answer in their language (Hinglish/Hindi/English).
+- For PDF questions: "Haan, StudySilo me aap kisi bhi note, study guide ya formula sheet ko 'Export to PDF' button se PDF format me download kar sakte hain!"
+- NEVER output academic headings, LaTeX formulas, or tables for conversational questions.
+- Keep it friendly, short, and to the point.`, levelDirective)
 	}
 
-	isQuickFormula := (strings.Contains(query, "formula") || strings.Contains(query, "si unit") || strings.Contains(query, "dimension") || strings.Contains(query, "value of") || strings.Contains(query, "unit of")) && wordCount <= 9
-	isShortDef := (strings.HasPrefix(query, "what is") || strings.HasPrefix(query, "define") || strings.HasPrefix(query, "kya hai") || strings.HasPrefix(query, "meaning of") || strings.HasPrefix(query, "state")) && wordCount <= 7
+	isQuickFormula := (strings.Contains(query, "formula") || strings.Contains(query, "si unit") || strings.Contains(query, "dimension") || strings.Contains(query, "value of") || strings.Contains(query, "unit of") || strings.Contains(query, "constant of")) && wordCount <= 9
+	isShortDef := (strings.HasPrefix(query, "what is") || strings.HasPrefix(query, "define") || strings.HasPrefix(query, "kya hai") || strings.HasPrefix(query, "meaning of") || strings.HasPrefix(query, "state") || strings.HasPrefix(query, "who is") || strings.HasPrefix(query, "name the")) && wordCount <= 7
+	isVerification := (strings.HasPrefix(query, "is ") || strings.HasPrefix(query, "can ") || strings.HasPrefix(query, "does ") || strings.Contains(query, "true or false") || strings.Contains(query, "sahi hai kya") || strings.Contains(query, "galat hai kya") || strings.Contains(query, "correct or not")) && wordCount <= 10
 
-	if isQuickFormula || isShortDef {
+	if isQuickFormula || isShortDef || isVerification {
 		return fmt.Sprintf(`%s
 ⚡ SITUATION: SHORT QUESTION / DIRECT LOOKUP
-- The student asked a short, direct question (definition, formula, or quick fact).
-- Provide a short, direct, and crisp answer (2-4 lines).
-- Never create unnecessary tables or long essays for a quick question.
-- Cleanly state the answer, definition, or formula.`, levelDirective)
+- The student asked a short, direct question (definition, formula, quick fact, or verification).
+- Provide a short, direct, and crisp answer (2-4 lines maximum).
+- State the formula in LaTeX, SI unit, or exact definition.
+- NEVER create unnecessary tables or long explanations for quick questions.
+- COMPLETE ANSWER MANDATE: Always finish the answer; never cut off mid-sentence.`, levelDirective)
 	}
 
-	isDerivation := strings.Contains(query, "derive") || strings.Contains(query, "derivation") || strings.Contains(query, "prove") || strings.Contains(query, "proof") || strings.Contains(query, "step by step")
+	isDerivation := strings.Contains(query, "derive") || strings.Contains(query, "derivation") || strings.Contains(query, "prove") || strings.Contains(query, "proof") || strings.Contains(query, "step by step") || strings.Contains(query, "solve this") || strings.Contains(query, "numerical")
 	if isDerivation {
 		return fmt.Sprintf(`%s
-📐 SITUATION: MATHEMATICAL DERIVATION / FORMAL PROOF
-- Deliver clear step-by-step mathematical proof in LaTeX ($$ ... $$).
-- State initial law -> Show key intermediate steps -> Box the final result.`, levelDirective)
+📐 SITUATION: MATHEMATICAL DERIVATION / FORMAL PROOF / PROBLEM-SOLVING
+- Deliver mathematical proof calibrated to the student's level.
+- Structure: Problem Setup & Variables -> Governing Principle -> Step-by-Step Mathematical Derivation in LaTeX -> Dimensional Check -> Boxed Final Result.
+- Every step must have brief physical/mathematical justification.
+- COMPLETE DERIVATION MANDATE: Walk through every step to the very end without cutting off.`, levelDirective)
 	}
 
-	isFollowUp := strings.HasPrefix(query, "aur") || strings.HasPrefix(query, "then") || strings.HasPrefix(query, "why") || strings.HasPrefix(query, "kyu") || strings.HasPrefix(query, "repeat") || strings.HasPrefix(query, "example do") || strings.HasPrefix(query, "short me")
+	isFollowUp := strings.HasPrefix(query, "aur") || strings.HasPrefix(query, "then") || strings.HasPrefix(query, "why") || strings.HasPrefix(query, "kyu") || strings.HasPrefix(query, "kyun") || strings.HasPrefix(query, "repeat") || strings.HasPrefix(query, "example do") || strings.HasPrefix(query, "short me") || strings.HasPrefix(query, "hindi me") || (wordCount <= 4 && !isShortDef)
 	if isFollowUp {
 		return fmt.Sprintf(`%s
 🔄 SITUATION: CONTEXTUAL FOLLOW-UP / SPECIFIC CLARIFICATION
 - Directly address the specific clarification or doubt based on prior context.
-- Keep it natural, focused, and conversational.`, levelDirective)
+- Match answer length proportionately: focused for quick clarifications, comprehensive if deep example was requested.
+- COMPLETE EXPLANATION MANDATE: Finish all examples, steps, or workings completely without stopping.`, levelDirective)
 	}
 
-	return fmt.Sprintf(`%s
-🌟 SITUATION: DEEP ACADEMIC EXPLANATION & CONCEPT MASTERY (8K TOKEN CAPACITY)
-- The student is seeking conceptual clarity, mechanism, and exam preparation on this topic.
-- TOKEN LIMIT: Maximum 8192 tokens (8k). Deliver a comprehensive, high-depth explanation without shallow brevity!
-- Provide the complete masterclass explanation structured under the 6 high-yield headings:
+	isDeepConcept := strings.Contains(query, "explain in detail") || strings.Contains(query, "deep") || strings.Contains(query, "comprehensive") || strings.Contains(query, "compare") || strings.Contains(query, "difference between") || strings.Contains(query, "working of") || strings.Contains(query, "mechanism of") || strings.Contains(query, "architecture") || wordCount > 18
+	if isDeepConcept {
+		return fmt.Sprintf(`%s
+🌟 SITUATION: LONG QUESTION / DEEP CONCEPTUAL UNDERSTANDING
+- The question demands depth. Provide a comprehensive explanation strictly proportional to the question.
+- TOKEN LIMIT: Maximum 8192 tokens (8k). NEVER truncate mid-sentence.
+- Structure simply using normal headings and write answers directly underneath:
   ### Foundation
   ### Deep Explanation
   ### 💡 Exam Tips & High-Yield Points
   ### ⚠️ Common Misconceptions & Traps
   ### 🔗 Related Concepts
   ### 📌 Key Takeaways
-- Use LaTeX for mathematical and scientific equations ($$ ... $$ for standalone, $ ... $ for inline).
-- Avoid introductory fluff. Make every section dense with understanding and exam scoring value.`, levelDirective)
+- Use LaTeX for equations ($$ ... $$ standalone, $ ... $ inline).
+- Avoid introductory fluff. Make every section dense with understanding.`, levelDirective)
+	}
+
+	return fmt.Sprintf(`%s
+🎯 SITUATION: NATURAL QUESTION-PROPORTIONATE ANSWER
+- Scale answer length strictly to match the question depth.
+- For conceptual questions, structure with normal headings:
+  ### Foundation
+  ### Deep Explanation
+  ### 💡 Exam Tips & High-Yield Points
+  ### ⚠️ Common Misconceptions & Traps
+  ### 🔗 Related Concepts
+  ### 📌 Key Takeaways
+- Short question -> short, direct, focused answer (no filler headings).
+- COMPLETE RESPONSE MANDATE: Fully complete all points and conclusions without cutting off mid-sentence.`, levelDirective)
 }
 
 func buildTutorPrompt(mode, question, contextNotes, targetExam, academicLevel string, weakTopics []string) string {

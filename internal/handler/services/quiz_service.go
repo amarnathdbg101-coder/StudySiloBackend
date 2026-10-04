@@ -384,11 +384,30 @@ func (s *quizService) GetCognitiveProfile(ctx context.Context, userID string) (*
 
 func (s *quizService) UpdateCognitiveProfile(ctx context.Context, userID string, req dto.UpdateCognitiveProfileRequest) (*model.CognitiveProfile, error) {
 	if userID == "" || userID == "guest-user" || s.cognitiveRepo == nil {
-		return &model.CognitiveProfile{
+		profile := &model.CognitiveProfile{
 			UserID:        userID,
 			TargetExam:    "Competitive / University Exam",
 			AcademicLevel: "Undergraduate",
-		}, nil
+			WeakTopics:    []string{},
+			StrongTopics:  []string{},
+			ExamTraps:     []string{},
+		}
+		if req.TargetExam != nil {
+			profile.TargetExam = *req.TargetExam
+		}
+		if req.AcademicLevel != nil {
+			profile.AcademicLevel = *req.AcademicLevel
+		}
+		if req.WeakTopics != nil {
+			profile.WeakTopics = *req.WeakTopics
+		}
+		if req.StrongTopics != nil {
+			profile.StrongTopics = *req.StrongTopics
+		}
+		if req.ExamTrapsToWatch != nil {
+			profile.ExamTraps = *req.ExamTrapsToWatch
+		}
+		return profile, nil
 	}
 
 	profile, err := s.cognitiveRepo.GetByUserID(ctx, userID)
@@ -401,6 +420,15 @@ func (s *quizService) UpdateCognitiveProfile(ctx context.Context, userID string,
 	}
 	if req.AcademicLevel != nil {
 		profile.AcademicLevel = *req.AcademicLevel
+	}
+	if req.WeakTopics != nil {
+		profile.WeakTopics = *req.WeakTopics
+	}
+	if req.StrongTopics != nil {
+		profile.StrongTopics = *req.StrongTopics
+	}
+	if req.ExamTrapsToWatch != nil {
+		profile.ExamTraps = *req.ExamTrapsToWatch
 	}
 
 	if err := s.cognitiveRepo.Upsert(ctx, profile); err != nil {

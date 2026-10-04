@@ -217,3 +217,51 @@ func TestQuizService_GuestUserAndFallback(t *testing.T) {
 	}
 }
 
+func TestQuizService_UpdateCognitiveProfile(t *testing.T) {
+	cogRepo := &mockCognitiveRepo{
+		profiles: map[string]*model.CognitiveProfile{
+			"user-1": {
+				UserID:        "user-1",
+				TargetExam:    "General",
+				AcademicLevel: "School",
+				WeakTopics:    []string{},
+				StrongTopics:  []string{},
+			},
+		},
+	}
+	service := NewQuizService(nil, cogRepo, nil)
+	ctx := context.Background()
+
+	targetExam := "JEE Advanced"
+	academicLevel := "Competitive Entrance (Rank Booster)"
+	weakTopics := []string{"Thermodynamics", "Optics"}
+	strongTopics := []string{"Kinematics"}
+	traps := []string{"Sign convention in lens formula"}
+
+	req := dto.UpdateCognitiveProfileRequest{
+		TargetExam:       &targetExam,
+		AcademicLevel:    &academicLevel,
+		WeakTopics:       &weakTopics,
+		StrongTopics:     &strongTopics,
+		ExamTrapsToWatch: &traps,
+	}
+
+	updated, err := service.UpdateCognitiveProfile(ctx, "user-1", req)
+	if err != nil {
+		t.Fatalf("failed to update cognitive profile: %v", err)
+	}
+
+	if updated.TargetExam != targetExam {
+		t.Errorf("expected target exam %s, got %s", targetExam, updated.TargetExam)
+	}
+	if len(updated.WeakTopics) != 2 || updated.WeakTopics[0] != "Thermodynamics" {
+		t.Errorf("expected 2 weak topics with Thermodynamics, got %v", updated.WeakTopics)
+	}
+	if len(updated.StrongTopics) != 1 || updated.StrongTopics[0] != "Kinematics" {
+		t.Errorf("expected 1 strong topic Kinematics, got %v", updated.StrongTopics)
+	}
+	if len(updated.ExamTraps) != 1 {
+		t.Errorf("expected 1 exam trap, got %v", updated.ExamTraps)
+	}
+}
+

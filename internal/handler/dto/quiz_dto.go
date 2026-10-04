@@ -50,6 +50,9 @@ type QuizSubmissionResponse struct {
 // ---------------------------------------------------------------------------
 
 type UpdateCognitiveProfileRequest struct {
-	TargetExam    *string `json:"target_exam" validate:"omitempty,max=250"`
-	AcademicLevel *string `json:"academic_level" validate:"omitempty,max=100"`
+	TargetExam       *string   `json:"target_exam" validate:"omitempty,max=250"`
+	AcademicLevel    *string   `json:"academic_level" validate:"omitempty,max=100"`
+	WeakTopics       *[]string `json:"weak_topics" validate:"omitempty"`
+	StrongTopics     *[]string `json:"strong_topics" validate:"omitempty"`
+	ExamTrapsToWatch *[]string `json:"exam_traps_to_watch" validate:"omitempty"`
 }

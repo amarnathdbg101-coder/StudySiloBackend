@@ -75,6 +75,13 @@ func (r *cognitiveRepo) Upsert(ctx context.Context, profile *model.CognitiveProf
 		ON CONFLICT (user_id) DO UPDATE SET
 			target_exam = EXCLUDED.target_exam,
 			academic_level = EXCLUDED.academic_level,
+			weak_topics = EXCLUDED.weak_topics,
+			strong_topics = EXCLUDED.strong_topics,
+			exam_traps = EXCLUDED.exam_traps,
+			study_streak_days = EXCLUDED.study_streak_days,
+			total_study_minutes = EXCLUDED.total_study_minutes,
+			total_quizzes_taken = EXCLUDED.total_quizzes_taken,
+			average_quiz_score = EXCLUDED.average_quiz_score,
 			updated_at = NOW()
 		RETURNING last_active_at, updated_at
 	`
