@@ -78,25 +78,26 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 			})
 		})
 
-		// Public/Guest & Authenticated AI Learning Routes (Optional Auth - guest doubts work, authenticated users get cognitive personalization & history)
-		r.Group(func(r chi.Router) {
-			r.Use(middleware.OptionalJWTAuth(cfg.JwtSecret))
-
-			r.Route("/ai", func(r chi.Router) {
+		// AI Learning Routes (Doubt solving, diagrams, history, notes analysis)
+		r.Route("/ai", func(r chi.Router) {
+			// Public / Guest & Authenticated AI Learning Routes (Optional Auth)
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.OptionalJWTAuth(cfg.JwtSecret))
 				r.Post("/doubt", aiCtrl.SolveDoubt)
 				r.Post("/diagram", aiCtrl.GenerateDiagram)
 			})
-		})
 
-		// Protected AI & Learning Routes (Requires Authentication)
-		r.Group(func(r chi.Router) {
-			r.Use(middleware.JWTAuth(cfg.JwtSecret))
-
-			// AI Tutor History & Notes Analyzer
-			r.Route("/ai", func(r chi.Router) {
+			// Strictly Protected AI endpoints (Requires JWT)
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.JWTAuth(cfg.JwtSecret))
 				r.Get("/history", aiCtrl.GetChatHistory)
 				r.Post("/analyze-notes", aiCtrl.AnalyzeNotes)
 			})
+		})
+
+		// Protected Learning Routes (Requires Authentication)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.JWTAuth(cfg.JwtSecret))
 
 			// Adaptive AI Quizzes
 			r.Route("/quizzes", func(r chi.Router) {
