@@ -91,6 +91,11 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 			r.Group(func(r chi.Router) {
 				r.Use(middleware.JWTAuth(cfg.JwtSecret))
 				r.Get("/history", aiCtrl.GetChatHistory)
+				r.Get("/sessions", aiCtrl.ListChatSessions)
+				r.Post("/sessions", aiCtrl.CreateChatSession)
+				r.Get("/sessions/{id}", aiCtrl.GetChatSessionMessages)
+				r.Patch("/sessions/{id}", aiCtrl.UpdateChatSession)
+				r.Delete("/sessions/{id}", aiCtrl.DeleteChatSession)
 				r.Post("/analyze-notes", aiCtrl.AnalyzeNotes)
 			})
 		})

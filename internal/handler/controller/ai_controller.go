@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
 	"goProjectStructure/internal/handler/dto"
 	"goProjectStructure/internal/handler/services"
 	"goProjectStructure/internal/middleware"
@@ -74,6 +75,119 @@ func (c *AIController) GetChatHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reuse.Success(w, "chat history retrieved successfully", messages)
+}
+
+// ListChatSessions returns all conversations for the student (ChatGPT-style)
+func (c *AIController) ListChatSessions(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	if claims == nil {
+		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
+		return
+	}
+
+	sessions, err := c.aiTutorService.ListSessions(r.Context(), claims.UserID)
+	if err != nil {
+		reuse.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	reuse.Success(w, "chat sessions retrieved successfully", sessions)
+}
+
+// CreateChatSession explicitly creates a new conversation thread
+func (c *AIController) CreateChatSession(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	if claims == nil {
+		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
+		return
+	}
+
+	var req dto.CreateSessionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		reuse.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	session, err := c.aiTutorService.CreateSession(r.Context(), claims.UserID, req.Title)
+	if err != nil {
+		reuse.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	reuse.Success(w, "chat session created successfully", session)
+}
+
+// GetChatSessionMessages retrieves messages belonging to a specific session
+func (c *AIController) GetChatSessionMessages(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	if claims == nil {
+		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
+		return
+	}
+
+	sessionID := chi.URLParam(r, "id")
+	if sessionID == "" {
+		reuse.Error(w, http.StatusBadRequest, "session id required")
+		return
+	}
+
+	messages, err := c.aiTutorService.GetSessionMessages(r.Context(), claims.UserID, sessionID)
+	if err != nil {
+		reuse.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	reuse.Success(w, "session messages retrieved successfully", messages)
+}
+
+// UpdateChatSession renames a conversation thread
+func (c *AIController) UpdateChatSession(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	if claims == nil {
+		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
+		return
+	}
+
+	sessionID := chi.URLParam(r, "id")
+	if sessionID == "" {
+		reuse.Error(w, http.StatusBadRequest, "session id required")
+		return
+	}
+
+	var req dto.UpdateSessionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		reuse.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := c.aiTutorService.UpdateSession(r.Context(), claims.UserID, sessionID, req.Title); err != nil {
+		reuse.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	reuse.Success(w, "chat session updated successfully", nil)
+}
+
+// DeleteChatSession deletes a conversation thread and its messages
+func (c *AIController) DeleteChatSession(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	if claims == nil {
+		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
+		return
+	}
+
+	sessionID := chi.URLParam(r, "id")
+	if sessionID == "" {
+		reuse.Error(w, http.StatusBadRequest, "session id required")
+		return
+	}
+
+	if err := c.aiTutorService.DeleteSession(r.Context(), claims.UserID, sessionID); err != nil {
+		reuse.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	reuse.Success(w, "chat session deleted successfully", nil)
 }
 
 // AnalyzeNotes converts lecture notes into summaries, flashcards, and cheat sheets

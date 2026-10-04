@@ -6,8 +6,9 @@ package dto
 
 type DoubtRequest struct {
 	Question      string   `json:"question" validate:"required,min=2"`
-	ScopeType     string   `json:"scope_type" validate:"omitempty,oneof=global course folder note"`
+	ScopeType     string   `json:"scope_type" validate:"omitempty,oneof=global course folder note chat session"`
 	ScopeID       string   `json:"scope_id"`
+	SessionID     string   `json:"session_id,omitempty"`
 	ImageBase64   string   `json:"image_base64"`
 	ImageMimeType string   `json:"image_mime_type"`
 	AudioBase64   string   `json:"audio_base64"`
@@ -29,6 +30,16 @@ type DoubtResponse struct {
 	FollowUpChips    []string `json:"follow_up_chips"`
 	ActiveProvider   string   `json:"active_provider"`
 	ActiveModel      string   `json:"active_model"`
+	SessionID        string   `json:"session_id,omitempty"`
+	SessionTitle     string   `json:"session_title,omitempty"`
+}
+
+type CreateSessionRequest struct {
+	Title string `json:"title" validate:"required,min=1,max=255"`
+}
+
+type UpdateSessionRequest struct {
+	Title string `json:"title" validate:"required,min=1,max=255"`
 }
 
 // ---------------------------------------------------------------------------

@@ -16,6 +16,11 @@ import (
 type AITutorService interface {
 	SolveDoubt(ctx context.Context, userID string, req dto.DoubtRequest) (*dto.DoubtResponse, error)
 	GetChatHistory(ctx context.Context, userID, scopeType, scopeID string) ([]*model.ChatMessage, error)
+	ListSessions(ctx context.Context, userID string) ([]*model.ChatSession, error)
+	CreateSession(ctx context.Context, userID, title string) (*model.ChatSession, error)
+	GetSessionMessages(ctx context.Context, userID, sessionID string) ([]*model.ChatMessage, error)
+	UpdateSession(ctx context.Context, userID, sessionID, title string) error
+	DeleteSession(ctx context.Context, userID, sessionID string) error
 }
 
 type aiTutorService struct {
@@ -142,23 +147,54 @@ func (s *aiTutorService) SolveDoubt(ctx context.Context, userID string, req dto.
 		ActiveModel:      modelName,
 	}
 
-	// Persist to chat messages if user is authenticated
+	// Persist to chat messages and manage session if user is authenticated
 	if userID != "" && s.chatRepo != nil {
 		scopeType := req.ScopeType
 		if scopeType == "" {
-			scopeType = "global"
+			scopeType = "chat"
 		}
+		sessionID := req.SessionID
+		if sessionID == "" && (scopeType == "chat" || scopeType == "session") {
+			sessionID = req.ScopeID
+		}
+
+		var sessionTitle string
+		// If sessionID is empty, create a new session record automatically (like ChatGPT)
+		if sessionID == "" && (scopeType == "chat" || scopeType == "session" || scopeType == "global") {
+			sessionTitle = strings.TrimSpace(req.Question)
+			if len(sessionTitle) > 50 {
+				sessionTitle = sessionTitle[:50] + "..."
+			}
+			newSession := &model.ChatSession{
+				UserID: userID,
+				Title:  sessionTitle,
+			}
+			if err := s.chatRepo.CreateSession(ctx, newSession); err == nil {
+				sessionID = newSession.ID
+				resp.SessionID = sessionID
+				resp.SessionTitle = sessionTitle
+			}
+		} else if sessionID != "" {
+			_ = s.chatRepo.TouchSession(ctx, userID, sessionID)
+			resp.SessionID = sessionID
+		}
+
+		effectiveScopeID := sessionID
+		if effectiveScopeID == "" {
+			effectiveScopeID = req.ScopeID
+		}
+
 		_ = s.chatRepo.SaveMessage(ctx, &model.ChatMessage{
 			UserID:    userID,
 			ScopeType: scopeType,
-			ScopeID:   req.ScopeID,
+			ScopeID:   effectiveScopeID,
 			Role:      "user",
 			Content:   req.Question,
 		})
 		_ = s.chatRepo.SaveMessage(ctx, &model.ChatMessage{
 			UserID:    userID,
 			ScopeType: scopeType,
-			ScopeID:   req.ScopeID,
+			ScopeID:   effectiveScopeID,
 			Role:      "assistant",
 			Content:   answerText,
 		})
@@ -183,6 +219,56 @@ func (s *aiTutorService) GetChatHistory(ctx context.Context, userID, scopeType, 
 		return []*model.ChatMessage{}, nil
 	}
 	return s.chatRepo.ListMessages(ctx, userID, scopeType, scopeID, 50)
+}
+
+func (s *aiTutorService) ListSessions(ctx context.Context, userID string) ([]*model.ChatSession, error) {
+	if s.chatRepo == nil {
+		return []*model.ChatSession{}, nil
+	}
+	return s.chatRepo.ListSessions(ctx, userID, 50)
+}
+
+func (s *aiTutorService) CreateSession(ctx context.Context, userID, title string) (*model.ChatSession, error) {
+	if s.chatRepo == nil {
+		return nil, fmt.Errorf("chat repository not available")
+	}
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = "New Conversation"
+	}
+	session := &model.ChatSession{
+		UserID: userID,
+		Title:  title,
+	}
+	if err := s.chatRepo.CreateSession(ctx, session); err != nil {
+		return nil, err
+	}
+	return session, nil
+}
+
+func (s *aiTutorService) GetSessionMessages(ctx context.Context, userID, sessionID string) ([]*model.ChatMessage, error) {
+	if s.chatRepo == nil {
+		return []*model.ChatMessage{}, nil
+	}
+	return s.chatRepo.ListSessionMessages(ctx, userID, sessionID, 100)
+}
+
+func (s *aiTutorService) UpdateSession(ctx context.Context, userID, sessionID, title string) error {
+	if s.chatRepo == nil {
+		return fmt.Errorf("chat repository not available")
+	}
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = "Untitled Chat"
+	}
+	return s.chatRepo.UpdateSession(ctx, userID, sessionID, title)
+}
+
+func (s *aiTutorService) DeleteSession(ctx context.Context, userID, sessionID string) error {
+	if s.chatRepo == nil {
+		return fmt.Errorf("chat repository not available")
+	}
+	return s.chatRepo.DeleteSession(ctx, userID, sessionID)
 }
 
 func analyzeQuerySituation(userMessage, contextNotes string) string {

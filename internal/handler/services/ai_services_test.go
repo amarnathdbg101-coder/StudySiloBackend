@@ -24,6 +24,35 @@ func (m *mockChatRepo) ListMessages(ctx context.Context, userID, scopeType, scop
 	return m.messages, nil
 }
 
+func (m *mockChatRepo) CreateSession(ctx context.Context, session *model.ChatSession) error {
+	session.ID = "session-1"
+	return nil
+}
+
+func (m *mockChatRepo) GetSession(ctx context.Context, userID, sessionID string) (*model.ChatSession, error) {
+	return &model.ChatSession{ID: sessionID, UserID: userID, Title: "Test Session"}, nil
+}
+
+func (m *mockChatRepo) ListSessions(ctx context.Context, userID string, limit int) ([]*model.ChatSession, error) {
+	return []*model.ChatSession{{ID: "session-1", UserID: userID, Title: "Test Session"}}, nil
+}
+
+func (m *mockChatRepo) TouchSession(ctx context.Context, userID, sessionID string) error {
+	return nil
+}
+
+func (m *mockChatRepo) UpdateSession(ctx context.Context, userID, sessionID, title string) error {
+	return nil
+}
+
+func (m *mockChatRepo) DeleteSession(ctx context.Context, userID, sessionID string) error {
+	return nil
+}
+
+func (m *mockChatRepo) ListSessionMessages(ctx context.Context, userID, sessionID string, limit int) ([]*model.ChatMessage, error) {
+	return m.messages, nil
+}
+
 func TestAITutorService_SolveDoubt(t *testing.T) {
 	orch := ai.NewOrchestrator([]string{}, []string{}, []string{})
 	chatRepo := &mockChatRepo{}
