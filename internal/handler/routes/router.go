@@ -45,36 +45,26 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 	r.Get("/health/live", healthCtrl.Live)
 	r.Get("/health/ready", healthCtrl.Ready)
 
-	// 3. Domain Repositories
+	// 3. Domain Repositories (AI, Cognitive Profile, Chat & User)
 	userRepo := repository.NewUserRepo(db, logger)
-	courseRepo := repository.NewCourseRepo(db, logger)
-	folderRepo := repository.NewFolderRepo(db, logger)
-	noteRepo := repository.NewNoteRepo(db, logger)
 	chatRepo := repository.NewChatRepo(db, logger)
 	cognitiveRepo := repository.NewCognitiveRepo(db, logger)
 	quizRepo := repository.NewQuizRepo(db, logger)
-	syncRepo := repository.NewSyncRepo(db, logger)
 
 	// 4. Domain & AI Services
 	aiOrchestrator := ai.NewOrchestrator(cfg.GeminiAPIKeys, cfg.OpenAIAPIKeys, cfg.ClaudeAPIKeys)
 	authService := services.NewAuthService(userRepo)
-	academicService := services.NewAcademicService(courseRepo, folderRepo, noteRepo)
-	aiTutorService := services.NewAITutorService(aiOrchestrator, chatRepo)
-	notesAnalyzerService := services.NewNotesAnalyzerService(aiOrchestrator, noteRepo)
+	aiTutorService := services.NewAITutorService(aiOrchestrator, chatRepo, cognitiveRepo)
+	notesAnalyzerService := services.NewNotesAnalyzerService(aiOrchestrator, nil)
 	diagramService := services.NewDiagramService(aiOrchestrator)
 	quizService := services.NewQuizService(quizRepo, cognitiveRepo, aiOrchestrator)
-	syncService := services.NewSyncService(syncRepo)
-	pdfExportService := services.NewPDFExportService(noteRepo, quizRepo)
 
 	// 5. Domain Controllers
 	authCtrl := controller.NewAuthController(authService)
-	academicCtrl := controller.NewAcademicController(academicService)
 	aiCtrl := controller.NewAIController(aiTutorService, notesAnalyzerService, diagramService)
 	quizCtrl := controller.NewQuizController(quizService)
-	syncCtrl := controller.NewSyncController(syncService)
-	exportCtrl := controller.NewExportController(pdfExportService)
 
-	// 6. API v1 Routes
+	// 6. API v1 Pure AI Routes
 	r.Route("/api/v1", func(r chi.Router) {
 		// Public Auth routes
 		r.Route("/auth", func(r chi.Router) {
@@ -88,46 +78,27 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 			})
 		})
 
-		// Protected Academic routes (Courses, Folders, Notes)
+		// Public/Guest & Authenticated AI Learning Routes (Optional Auth - guest doubts work, authenticated users get cognitive personalization & history)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.OptionalJWTAuth(cfg.JwtSecret))
+
+			r.Route("/ai", func(r chi.Router) {
+				r.Post("/doubt", aiCtrl.SolveDoubt)
+				r.Post("/diagram", aiCtrl.GenerateDiagram)
+			})
+		})
+
+		// Protected AI & Learning Routes (Requires Authentication)
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.JWTAuth(cfg.JwtSecret))
 
-			// Courses
-			r.Route("/courses", func(r chi.Router) {
-				r.Get("/", academicCtrl.ListCourses)
-				r.Post("/", academicCtrl.CreateCourse)
-				r.Get("/{id}", academicCtrl.GetCourse)
-				r.Put("/{id}", academicCtrl.UpdateCourse)
-				r.Delete("/{id}", academicCtrl.DeleteCourse)
-				r.Get("/{courseId}/folders/tree", academicCtrl.GetFolderTree)
-			})
-
-			// Folders
-			r.Route("/folders", func(r chi.Router) {
-				r.Post("/", academicCtrl.CreateFolder)
-				r.Get("/{id}", academicCtrl.GetFolder)
-				r.Put("/{id}", academicCtrl.UpdateFolder)
-				r.Delete("/{id}", academicCtrl.DeleteFolder)
-			})
-
-			// Notes
-			r.Route("/notes", func(r chi.Router) {
-				r.Get("/", academicCtrl.ListNotes)
-				r.Post("/", academicCtrl.CreateNote)
-				r.Get("/{id}", academicCtrl.GetNote)
-				r.Put("/{id}", academicCtrl.UpdateNote)
-				r.Delete("/{id}", academicCtrl.DeleteNote)
-			})
-
-			// AI Tutor, Notes Analyzer & Diagram Engine
+			// AI Tutor History & Notes Analyzer
 			r.Route("/ai", func(r chi.Router) {
-				r.Post("/doubt", aiCtrl.SolveDoubt)
 				r.Get("/history", aiCtrl.GetChatHistory)
 				r.Post("/analyze-notes", aiCtrl.AnalyzeNotes)
-				r.Post("/diagram", aiCtrl.GenerateDiagram)
 			})
 
-			// Adaptive Quizzes
+			// Adaptive AI Quizzes
 			r.Route("/quizzes", func(r chi.Router) {
 				r.Get("/", quizCtrl.ListQuizzes)
 				r.Post("/generate", quizCtrl.GenerateQuiz)
@@ -135,19 +106,10 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 				r.Post("/{id}/submit", quizCtrl.SubmitQuiz)
 			})
 
-			// Student Cognitive Memory Profile
+			// Student Cognitive AI Memory Profile
 			r.Route("/profile/cognitive", func(r chi.Router) {
 				r.Get("/", quizCtrl.GetCognitiveProfile)
 				r.Put("/", quizCtrl.UpdateCognitiveProfile)
-			})
-
-			// Offline-First Delta Sync for Flutter Clients
-			r.Get("/sync", syncCtrl.Sync)
-
-			// Branded Study PDF Export
-			r.Route("/export", func(r chi.Router) {
-				r.Get("/pdf", exportCtrl.ExportPDF)
-				r.Post("/pdf", exportCtrl.ExportPDF)
 			})
 		})
 	})

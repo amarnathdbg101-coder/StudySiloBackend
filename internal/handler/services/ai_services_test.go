@@ -26,7 +26,7 @@ func (m *mockChatRepo) ListMessages(ctx context.Context, userID, scopeType, scop
 func TestAITutorService_SolveDoubt(t *testing.T) {
 	orch := ai.NewOrchestrator([]string{}, []string{}, []string{})
 	chatRepo := &mockChatRepo{}
-	tutor := NewAITutorService(orch, chatRepo)
+	tutor := NewAITutorService(orch, chatRepo, nil)
 
 	ctx := context.Background()
 	req := dto.DoubtRequest{

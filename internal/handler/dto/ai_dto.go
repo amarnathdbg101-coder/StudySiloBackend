@@ -5,15 +5,20 @@ package dto
 // ---------------------------------------------------------------------------
 
 type DoubtRequest struct {
-	Question      string `json:"question" validate:"required,min=2"`
-	ScopeType     string `json:"scope_type" validate:"omitempty,oneof=global course folder note"`
-	ScopeID       string `json:"scope_id"`
-	ImageBase64   string `json:"image_base64"`
-	ImageMimeType string `json:"image_mime_type"`
-	ContextNotes  string `json:"context_notes"`
-	Provider      string `json:"provider"`
-	Model         string `json:"model"`
-	Mode          string `json:"mode"`
+	Question      string   `json:"question" validate:"required,min=2"`
+	ScopeType     string   `json:"scope_type" validate:"omitempty,oneof=global course folder note"`
+	ScopeID       string   `json:"scope_id"`
+	ImageBase64   string   `json:"image_base64"`
+	ImageMimeType string   `json:"image_mime_type"`
+	AudioBase64   string   `json:"audio_base64"`
+	AudioMimeType string   `json:"audio_mime_type"`
+	ContextNotes  string   `json:"context_notes"`
+	Provider      string   `json:"provider"`
+	Model         string   `json:"model"`
+	Mode          string   `json:"mode"`
+	TargetExam    string   `json:"target_exam"`
+	AcademicLevel string   `json:"academic_level"`
+	WeakTopics    []string `json:"weak_topics"`
 }
 
 type DoubtResponse struct {

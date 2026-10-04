@@ -75,3 +75,52 @@ func GetUserFromContext(ctx context.Context) *Claims {
 	}
 	return nil
 }
+
+// OptionalJWTAuth validates tokens when present, attaching Claims to context.
+// If no token is provided, it allows the request to proceed with claims = nil.
+// If a token is provided but invalid/expired, it returns 401 Unauthorized.
+func OptionalJWTAuth(secret string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" {
+				tokenStr := r.URL.Query().Get("token")
+				if tokenStr == "" {
+					tokenStr = r.URL.Query().Get("access_token")
+				}
+				if tokenStr != "" {
+					authHeader = "Bearer " + tokenStr
+				}
+			}
+
+			if authHeader == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+				http.Error(w, `{"success":false,"error":"invalid authorization header format"}`, http.StatusUnauthorized)
+				return
+			}
+
+			tokenStr := parts[1]
+			claims := &Claims{}
+
+			token, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
+				if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+					return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+				}
+				return []byte(secret), nil
+			})
+
+			if err != nil || !token.Valid {
+				http.Error(w, `{"success":false,"error":"invalid or expired token"}`, http.StatusUnauthorized)
+				return
+			}
+
+			ctx := context.WithValue(r.Context(), ContextKeyUser, claims)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
