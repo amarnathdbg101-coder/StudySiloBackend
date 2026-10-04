@@ -63,9 +63,6 @@ func (s *aiTutorService) SolveDoubt(ctx context.Context, userID string, req dto.
 	systemPrompt := buildTutorPrompt(req.Mode, req.Question, req.ContextNotes, targetExam, academicLevel, weakTopics)
 
 	userQuery := req.Question
-	if req.ContextNotes != "" {
-		userQuery = fmt.Sprintf("Context from student's notes:\n\"%s\"\n\nStudent Doubt:\n%s", req.ContextNotes, req.Question)
-	}
 
 	provider := req.Provider
 	if provider == "" {

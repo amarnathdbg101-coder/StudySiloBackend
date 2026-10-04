@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"goProjectStructure/internal/handler/dto"
@@ -52,6 +53,23 @@ func TestAITutorService_SolveDoubt(t *testing.T) {
 	// Verify chat message persisted
 	if len(chatRepo.messages) != 2 {
 		t.Fatalf("expected 2 chat messages saved (user and assistant), got %d", len(chatRepo.messages))
+	}
+
+	// Verify computer architecture doubt receives accurate CS architecture explanation
+	csReq := dto.DoubtRequest{
+		Question:     "explain computer architecture",
+		ContextNotes: "[STUDENT COGNITIVE PROFILE]\n• Target Exam: University Semester Exams",
+		ScopeType:    "global",
+	}
+	csResp, err := tutor.SolveDoubt(ctx, "user-1", csReq)
+	if err != nil {
+		t.Fatalf("unexpected error solving CS doubt: %v", err)
+	}
+	if !strings.Contains(csResp.SolutionMarkdown, "Von Neumann") {
+		t.Errorf("expected CS architecture solution to mention Von Neumann, got: %s", csResp.SolutionMarkdown)
+	}
+	if strings.Contains(csResp.SolutionMarkdown, `\lim_{\Delta t \to 0}`) {
+		t.Errorf("CS architecture solution should NOT contain velocity derivative formula!")
 	}
 }
 
