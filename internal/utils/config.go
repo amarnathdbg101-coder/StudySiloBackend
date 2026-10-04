@@ -88,11 +88,19 @@ func MustLoad() Config {
 			SecretKey:      os.Getenv("R2_SECRET_KEY"),
 			Endpoint:       os.Getenv("R2_ENDPOINT"),
 			PublicURL:      os.Getenv("R2_PUBLIC_URL"),
-			GeminiAPIKeys:  parseCommaList(os.Getenv("GEMINI_API_KEYS")),
-			OpenAIAPIKeys:  parseCommaList(os.Getenv("OPENAI_API_KEYS")),
-			ClaudeAPIKeys:  parseCommaList(os.Getenv("CLAUDE_API_KEYS")),
+			GeminiAPIKeys:  parseCommaList(getEnvFallback("GEMINI_API_KEYS", "GEMINI_API_KEY")),
+			OpenAIAPIKeys:  parseCommaList(getEnvFallback("OPENAI_API_KEYS", "OPENAI_API_KEY")),
+			ClaudeAPIKeys:  parseCommaList(getEnvFallback("CLAUDE_API_KEYS", "CLAUDE_API_KEY")),
 		}
 	})
 
 	return cachedConfig
+}
+
+func getEnvFallback(primary, fallback string) string {
+	val := os.Getenv(primary)
+	if val == "" {
+		val = os.Getenv(fallback)
+	}
+	return val
 }

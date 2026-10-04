@@ -48,6 +48,14 @@ func (c *AIController) SolveDoubt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.APIKey == "" {
+		if headerKey := r.Header.Get("X-Gemini-API-Key"); headerKey != "" {
+			req.APIKey = headerKey
+		} else if headerKey := r.Header.Get("X-API-Key"); headerKey != "" {
+			req.APIKey = headerKey
+		}
+	}
+
 	resp, err := c.aiTutorService.SolveDoubt(r.Context(), userID, req)
 	if err != nil {
 		reuse.Error(w, http.StatusInternalServerError, err.Error())

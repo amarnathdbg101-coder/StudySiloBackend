@@ -20,6 +20,7 @@ type DoubtRequest struct {
 	TargetExam    string   `json:"target_exam"`
 	AcademicLevel string   `json:"academic_level"`
 	WeakTopics    []string `json:"weak_topics"`
+	APIKey        string   `json:"api_key,omitempty"`
 }
 
 type DoubtResponse struct {

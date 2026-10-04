@@ -93,9 +93,9 @@ func (s *aiTutorService) SolveDoubt(ctx context.Context, userID string, req dto.
 			if audioPrompt == "" || strings.Contains(audioPrompt, "Attached spoken doubt") || strings.Contains(audioPrompt, "Voice Question") {
 				audioPrompt = "The student has recorded a spoken voice note asking an academic doubt. Please listen carefully to the student's speech, transcribe and address the core question, and deliver a comprehensive step-by-step masterclass explanation with LaTeX formulas and common exam traps."
 			}
-			answerText, err = s.orchestrator.GenerateVisionWithModel(ctx, provider, modelName, systemPrompt, audioPrompt, audioBytes, mime)
+			answerText, err = s.orchestrator.GenerateVisionWithCustomKey(ctx, req.APIKey, provider, modelName, systemPrompt, audioPrompt, audioBytes, mime)
 		} else {
-			answerText, err = s.orchestrator.GenerateTextWithModel(ctx, provider, modelName, systemPrompt, userQuery)
+			answerText, err = s.orchestrator.GenerateTextWithCustomKey(ctx, req.APIKey, provider, modelName, systemPrompt, userQuery)
 		}
 	} else if req.ImageBase64 != "" {
 		// 2. If handwritten image is provided, run vision multimodal pipeline
@@ -105,13 +105,13 @@ func (s *aiTutorService) SolveDoubt(ctx context.Context, userID string, req dto.
 			if mime == "" {
 				mime = "image/jpeg"
 			}
-			answerText, err = s.orchestrator.GenerateVisionWithModel(ctx, provider, modelName, systemPrompt, userQuery, imgBytes, mime)
+			answerText, err = s.orchestrator.GenerateVisionWithCustomKey(ctx, req.APIKey, provider, modelName, systemPrompt, userQuery, imgBytes, mime)
 		} else {
-			answerText, err = s.orchestrator.GenerateTextWithModel(ctx, provider, modelName, systemPrompt, userQuery)
+			answerText, err = s.orchestrator.GenerateTextWithCustomKey(ctx, req.APIKey, provider, modelName, systemPrompt, userQuery)
 		}
 	} else {
 		// 3. Pure text doubt
-		answerText, err = s.orchestrator.GenerateTextWithModel(ctx, provider, modelName, systemPrompt, userQuery)
+		answerText, err = s.orchestrator.GenerateTextWithCustomKey(ctx, req.APIKey, provider, modelName, systemPrompt, userQuery)
 	}
 
 	if err != nil && answerText == "" {
@@ -308,6 +308,16 @@ func analyzeQuerySituation(userMessage, contextNotes string) string {
 `
 	}
 
+	isConversational := strings.Contains(query, "pdf") || strings.Contains(query, "kya tum") || strings.Contains(query, "can you") || strings.Contains(query, "kya kar sakte") || strings.Contains(query, "who are you") || strings.Contains(query, "kaun ho") || strings.Contains(query, "hello") || strings.Contains(query, "hi") || strings.Contains(query, "hey") || strings.Contains(query, "help")
+	if isConversational && wordCount <= 12 {
+		return fmt.Sprintf(`%s
+💬 SITUATION: CONVERSATIONAL & APP CAPABILITY QUESTION
+- The student is asking about app features (like PDF generation, study assistance) or having a natural conversational chat.
+- Directly, warmly, and helpfully answer what they asked in their language (Hinglish/Hindi/English).
+- For PDF questions, clearly explain: "Haan, StudySilo me aap kisi bhi note, study guide ya formula sheet ko 'Export to PDF' button se PDF format me download kar sakte hain!"
+- NEVER output artificial academic headings, formulas, or tables for conversational questions.`, levelDirective)
+	}
+
 	isQuickFormula := (strings.Contains(query, "formula") || strings.Contains(query, "si unit") || strings.Contains(query, "dimension") || strings.Contains(query, "value of") || strings.Contains(query, "unit of")) && wordCount <= 9
 	isShortDef := (strings.HasPrefix(query, "what is") || strings.HasPrefix(query, "define") || strings.HasPrefix(query, "kya hai") || strings.HasPrefix(query, "meaning of") || strings.HasPrefix(query, "state")) && wordCount <= 7
 
@@ -316,17 +326,16 @@ func analyzeQuerySituation(userMessage, contextNotes string) string {
 ⚡ SITUATION: SHORT QUESTION / DIRECT LOOKUP
 - The student asked a short, direct question (definition, formula, or quick fact).
 - Provide a short, direct, and crisp answer (2-4 lines).
-- State the formula in LaTeX, SI unit, or exact definition without conversational filler or unrequested long essays.
-- Cleanly define all variables and units.`, levelDirective)
+- Never create unnecessary tables or long essays for a quick question.
+- Cleanly state the answer, definition, or formula.`, levelDirective)
 	}
 
 	isDerivation := strings.Contains(query, "derive") || strings.Contains(query, "derivation") || strings.Contains(query, "prove") || strings.Contains(query, "proof") || strings.Contains(query, "step by step")
 	if isDerivation {
 		return fmt.Sprintf(`%s
 📐 SITUATION: MATHEMATICAL DERIVATION / FORMAL PROOF
-- Deliver mathematical proof strictly calibrated to the student's level.
-- Structure logically: Problem Setup & Variable Declaration -> Governing Principle -> Step-by-Step Mathematical Derivation in LaTeX -> Dimensional/Boundary Check -> Boxed Final Result.
-- Walk through every step to the very end without cutting off.`, levelDirective)
+- Deliver clear step-by-step mathematical proof in LaTeX ($$ ... $$).
+- State initial law -> Show key intermediate steps -> Box the final result.`, levelDirective)
 	}
 
 	isFollowUp := strings.HasPrefix(query, "aur") || strings.HasPrefix(query, "then") || strings.HasPrefix(query, "why") || strings.HasPrefix(query, "kyu") || strings.HasPrefix(query, "repeat") || strings.HasPrefix(query, "example do") || strings.HasPrefix(query, "short me")
@@ -334,13 +343,22 @@ func analyzeQuerySituation(userMessage, contextNotes string) string {
 		return fmt.Sprintf(`%s
 🔄 SITUATION: CONTEXTUAL FOLLOW-UP / SPECIFIC CLARIFICATION
 - Directly address the specific clarification or doubt based on prior context.
-- Keep it focused for quick clarifications, or comprehensive if an example was requested.`, levelDirective)
+- Keep it natural, focused, and conversational.`, levelDirective)
 	}
 
 	return fmt.Sprintf(`%s
-🌟 SITUATION: CONCEPTUAL UNDERSTANDING & EXAM MASTERY
-- Scale answer length to match the question: detailed, thorough explanation under Foundation, Deep Explanation, Exam Tips, and Common Traps.
-- Keep the response simple, clean, and conversational like a masterclass AI study mentor.`, levelDirective)
+🌟 SITUATION: DEEP ACADEMIC EXPLANATION & CONCEPT MASTERY (8K TOKEN CAPACITY)
+- The student is seeking conceptual clarity, mechanism, and exam preparation on this topic.
+- TOKEN LIMIT: Maximum 8192 tokens (8k). Deliver a comprehensive, high-depth explanation without shallow brevity!
+- Provide the complete masterclass explanation structured under the 6 high-yield headings:
+  ### Foundation
+  ### Deep Explanation
+  ### 💡 Exam Tips & High-Yield Points
+  ### ⚠️ Common Misconceptions & Traps
+  ### 🔗 Related Concepts
+  ### 📌 Key Takeaways
+- Use LaTeX for mathematical and scientific equations ($$ ... $$ for standalone, $ ... $ for inline).
+- Avoid introductory fluff. Make every section dense with understanding and exam scoring value.`, levelDirective)
 }
 
 func buildTutorPrompt(mode, question, contextNotes, targetExam, academicLevel string, weakTopics []string) string {
@@ -399,34 +417,38 @@ CRITICAL RULES FOR ACCURATE & RELIABLE VISUALS:
 `
 
 	const globalFormattingDirectives = `
-CRITICAL FORMATTING & LATEX SPECIFICATION (MANDATORY FOR ALL RESPONSES):
-1. MATHEMATICAL & SCIENTIFIC FORMULAS:
-   - EVERY equation, mathematical relation, law, and derivation step MUST be written in LaTeX.
-   - For standalone/display equations, use display math blocks on their own separate lines:
-     $$
-     	ext{Formula or Expression}
-     $$
-   - Highlight the final or main result in a boxed LaTeX environment:
-     $$
-     oxed{Final Equation}
-     $$
-   - Use inline LaTeX math ($x$, $ec{F}$, $\Delta t$, $\hbar$) for all variables, symbols, and parameters inside regular text. Never write raw plaintext math like "F=ma" or "x^2".
-   - STRICTLY FORBIDDEN: NEVER wrap plain English/Hinglish words or non-math concepts in dollar signs (use **bold** instead).
-2. VARIABLES & SI UNITS TABLE:
-   - Whenever introducing a formula, provide a markdown table defining all variables, SI units, and dimensions:
-     | Symbol | Quantity | SI Unit | Physical Meaning |
-     |:---:|:---|:---:|:---|
-3. RICH VISUAL CALLOUT BLOCKS:
-   - Use the high-yield exam callout for critical scoring rules:
-     > 🎯 HIGH-YIELD EXAM FOCUS:
-     > [The single most critical scoring criteria, initial assumption, or exam presentation trick]
-   - Use the trap warning callout for traps:
-     > ⚠️ COMMON EXAM TRAP:
-     > [The exact sign error, unit slip, or examiner trick where students lose marks]
-4. COMPARISON CARDS:
-   - Always contrast misconceptions with scientific truth:
-     - ❌ **Common Misconception**: [what students wrongly believe]
-     - ✅ **Scientific Truth & Principle**: [accurate physical reality and proof]
+MASTER PEDAGOGICAL & COMMUNICATION DIRECTIVES:
+1. EXAM & GRADE LEVEL CALIBRATION (STRICTEST DIRECTIVE):
+   - Adapt depth, vocabulary, and formulas strictly to the student's preparation level.
+   - If Class 9-10 / School level: Explain strictly within the 9th/10th grade school syllabus. Aisa bilkul na ho ki student 10th ka ho aur answer graduation/college level ka de do! DO NOT use university multivariable calculus, differential equations, advanced vectors, or graduate-level proofs.
+   - If Class 11-12 / JEE / NEET: Use senior secondary entrance depth.
+   - If College / B.Tech / University: Use full graduation-level rigor.
+
+2. PROPORTIONATE ANSWER LENGTH & MAXIMUM 8K TOKENS:
+   - Token Limit is set to 8192 tokens (8k tokens). Provide deep, detailed, and rich explanations for academic queries without artificial truncation.
+   - Short questions (simple formula, SI unit, 1-line definition lookup) -> Short, direct answer (2-4 lines) with an optional quick tip/trap, without multi-step headings.
+   - Conversational / app capability questions (e.g. "Tum kya PDF generate kar sakte ho?", "Hi", "Kaun ho") -> Direct, warm, conversational response.
+   - Long / conceptual questions -> Comprehensive, deep masterclass under the 6 standard headings:
+     ### Foundation
+     [Explain foundational concept, core definition, and intuition directly underneath at the student's grade level]
+     ### Deep Explanation
+     [Explain deep mechanism, equations in LaTeX, and detailed working directly underneath at the student's grade level]
+     ### 💡 Exam Tips & High-Yield Points
+     [Scoring keywords, typical exam question formats, and marks-maximizing tips]
+     ### ⚠️ Common Misconceptions & Traps
+     ["❌ Common Mistake vs ✅ Correct Concept", sign/unit traps, and tricky examiner edge cases]
+     ### 🔗 Related Concepts
+     [2-3 interconnected topics or formulas from syllabus to revise alongside]
+     ### 📌 Key Takeaways
+     [2-3 crisp, memorable summary bullet points for quick revision]
+
+3. MATHEMATICAL & SCIENTIFIC RIGOR:
+   - Use LaTeX: $$ ... $$ for standalone formulas, and $ ... $ for inline variables only.
+   - Never wrap plain words or descriptions in dollar signs (use **bold** instead).
+   - Never invent formulas or equations for non-mathematical topics.
+
+4. MULTILINGUAL & HINGLISH AUTO-ADAPTATION:
+   - Match the student's language naturally (fluid Hinglish, Hindi, or Academic English).
 ` + masterDiagramDirectives
 
 	switch mode {
@@ -587,6 +609,9 @@ LANGUAGE: Methodical, precise, zero ambiguity. Hinglish or English. Every step M
 		return `PERSONA: 🎓 Academic Professor & Master AI Study Mentor.
 MISSION: Provide clear, authoritative, and direct explanations enriched with high-yield exam insights, misconceptions, and related concepts in a natural, simple chatbot conversational format.
 
+TOKEN CAPACITY & DEPTH (8K TOKENS):
+- Maximum Output Tokens: 8192 (8k tokens). Never summarize prematurely. Provide thorough academic depth for student mastery.
+
 CONCEPTUAL EXPLANATION FORMAT:
 When explaining a concept or answering an in-depth question, structure the response simply with normal markdown headings (no section boxes, phase dividers, or artificial structures):
 
@@ -600,7 +625,6 @@ Describe the in-depth knowledge directly below:
 - Step-by-step mechanism and underlying reasoning.
 - Governing formulas / equations in LaTeX with variables defined.
 - Practical application or real-world example.
-- Include a visual diagram (using the exact JSON schema above) when it clarifies the workflow or process.
 
 ### 💡 Exam Tips & High-Yield Points
 Provide strategic exam intelligence:
@@ -621,11 +645,15 @@ Highlight the exact traps where students lose marks:
 
 IMPORTANT RULES:
 - Keep the response simple, clean, and conversational — exactly like a natural, top-tier AI study chatbot.
-- Use normal markdown headings (### Foundation, ### Deep Explanation, ### 💡 Exam Tips, etc.) and write the answer directly underneath. Section create karne ki jarurat nahi hai.
+- Use normal markdown headings (### Foundation, ### Deep Explanation, ### 💡 Exam Tips & High-Yield Points, ### ⚠️ Common Misconceptions & Traps, ### 🔗 Related Concepts, ### 📌 Key Takeaways) and write the answer directly underneath.
 - For short, quick queries (e.g. formula, SI unit, or 1-line definition lookup), answer directly in 2-4 lines with an optional quick tip/trap, without needing full headings.
 - Calibrate the depth strictly to the student's target exam & grade level.
 
-LANGUAGE: Match the student's language naturally (Hinglish or English).
+DIAGRAM DIRECTIVE:
+- When a visual sketch is required: Do NOT output flowcharts. Only output JSON nodes and edges relevant to the concept.
+- No coordinates, no layout, no flowchart keywords. Use clean shapes like "shape": "circle" or "box".
+
+LANGUAGE: Match the student's language naturally (fluid Hinglish, Hindi, or English).
 ` + globalFormattingDirectives
 	}
 }

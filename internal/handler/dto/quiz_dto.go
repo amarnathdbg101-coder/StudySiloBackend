@@ -6,14 +6,14 @@ package dto
 
 type GenerateQuizRequest struct {
 	Topic         string  `json:"topic" validate:"required,min=2,max=200"`
-	CourseID      *string `json:"course_id" validate:"omitempty,uuid"`
-	NoteID        *string `json:"note_id" validate:"omitempty,uuid"`
-	Difficulty    string  `json:"difficulty" validate:"omitempty,oneof=adaptive easy medium hard"`
-	QuestionCount int     `json:"question_count" validate:"omitempty,min=1,max=20"`
+	CourseID      *string `json:"course_id" validate:"omitempty"`
+	NoteID        *string `json:"note_id" validate:"omitempty"`
+	Difficulty    string  `json:"difficulty" validate:"omitempty"`
+	QuestionCount int     `json:"question_count" validate:"omitempty"`
 }
 
 type QuestionAnswerInput struct {
-	QuestionID     string `json:"question_id" validate:"required,uuid"`
+	QuestionID     string `json:"question_id" validate:"required"`
 	SelectedOption int    `json:"selected_option" validate:"gte=0"`
 }
 

@@ -34,13 +34,15 @@ type GeminiProvider struct {
 func normalizeGeminiModel(modelName string) string {
 	m := strings.ToLower(strings.TrimSpace(modelName))
 	if m == "" {
-		return "gemini-3.8-flash"
+		return "gemini-2.0-flash"
 	}
 	switch m {
-	case "gemini-flash":
-		return "gemini-3.8-flash"
-	case "gemini-pro":
-		return "gemini-3.1-pro-preview"
+	case "gemini-flash", "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash":
+		return "gemini-2.0-flash"
+	case "gemini-3.5-flash-lite", "gemini-flash-lite":
+		return "gemini-2.0-flash-lite"
+	case "gemini-pro", "gemini-3.1-pro-preview":
+		return "gemini-1.5-pro"
 	default:
 		return m
 	}
@@ -61,29 +63,21 @@ func getGeminiCandidates(primary string) []string {
 	// 1. Primary requested model first
 	add(clean)
 
-	// 2. Cascade based on model family
+	// 2. Cascade based on model family with available live models
 	if strings.Contains(clean, "pro") {
-		add("gemini-3.1-pro-preview")
 		add("gemini-1.5-pro")
-		add("gemini-2.5-pro")
-		add("gemini-3.8-flash")
 		add("gemini-2.0-flash")
+		add("gemini-1.5-flash")
 	} else if strings.Contains(clean, "lite") {
-		add("gemini-3.5-flash-lite")
 		add("gemini-2.0-flash-lite")
-		add("gemini-3.8-flash")
 		add("gemini-2.0-flash")
 		add("gemini-1.5-flash")
 	} else {
-		// Flash & General Reasoning models
-		add("gemini-3.8-flash")
-		add("gemini-3.7-flash")
-		add("gemini-3.6-flash")
-		add("gemini-3.5-flash-lite")
-		add("gemini-2.5-flash")
+		// Flash & General Reasoning models (try fastest live model first)
 		add("gemini-2.0-flash")
 		add("gemini-1.5-flash")
 		add("gemini-1.5-pro")
+		add("gemini-2.0-flash-lite")
 	}
 
 	return list
@@ -387,6 +381,7 @@ func (o *OpenAIProvider) GenerateText(ctx context.Context, systemPrompt, userPro
 			{"role": "system", "content": systemPrompt},
 			{"role": "user", "content": userPrompt},
 		},
+		"max_tokens": 8192,
 	}
 
 	raw, _ := json.Marshal(reqBody)
@@ -460,6 +455,7 @@ func (o *OpenAIProvider) GenerateVision(ctx context.Context, systemPrompt, userP
 				},
 			},
 		},
+		"max_tokens": 8192,
 	}
 
 	raw, _ := json.Marshal(reqBody)
@@ -562,29 +558,64 @@ func (o *Orchestrator) GetProvider(providerName, modelName string) AIProvider {
 	return nil
 }
 
-func (o *Orchestrator) GenerateTextWithModel(ctx context.Context, providerName, modelName, systemPrompt, userPrompt string) (string, error) {
-	p := o.GetProvider(providerName, modelName)
+// GetProviderWithCustomKey uses a caller-provided custom API key if available, otherwise falls back to the configured pool
+func (o *Orchestrator) GetProviderWithCustomKey(providerName, modelName, customKey string) AIProvider {
+	if customKey != "" {
+		providerName = strings.ToLower(strings.TrimSpace(providerName))
+		modelName = strings.TrimSpace(modelName)
+
+		if providerName == "openai" || strings.HasPrefix(modelName, "gpt") {
+			if modelName == "" {
+				modelName = "gpt-4o-mini"
+			}
+			return NewOpenAIProvider([]string{customKey}, modelName)
+		}
+
+		if modelName == "" {
+			modelName = "gemini-2.0-flash"
+		}
+		return NewGeminiProvider([]string{customKey}, modelName)
+	}
+	return o.GetProvider(providerName, modelName)
+}
+
+func (o *Orchestrator) GenerateTextWithCustomKey(ctx context.Context, customKey, providerName, modelName, systemPrompt, userPrompt string) (string, error) {
+	p := o.GetProviderWithCustomKey(providerName, modelName, customKey)
 	if p != nil {
 		text, err := p.GenerateText(ctx, systemPrompt, userPrompt)
 		if err == nil && text != "" {
 			return text, nil
 		}
+		if customKey != "" && err != nil {
+			return "", fmt.Errorf("AI generation with provided API key failed: %w", err)
+		}
 	}
 
-	// Dynamic, high-quality LaTeX academic response fallback if offline or no keys
+	// Dynamic, high-quality academic response fallback if offline or no keys
 	return generateSmartAcademicResponse(userPrompt, providerName, modelName), nil
 }
 
-func (o *Orchestrator) GenerateVisionWithModel(ctx context.Context, providerName, modelName, systemPrompt, userPrompt string, imageBytes []byte, mimeType string) (string, error) {
-	p := o.GetProvider(providerName, modelName)
+func (o *Orchestrator) GenerateVisionWithCustomKey(ctx context.Context, customKey, providerName, modelName, systemPrompt, userPrompt string, imageBytes []byte, mimeType string) (string, error) {
+	p := o.GetProviderWithCustomKey(providerName, modelName, customKey)
 	if p != nil {
 		text, err := p.GenerateVision(ctx, systemPrompt, userPrompt, imageBytes, mimeType)
 		if err == nil && text != "" {
 			return text, nil
 		}
+		if customKey != "" && err != nil {
+			return "", fmt.Errorf("AI vision with provided API key failed: %w", err)
+		}
 	}
 
 	return generateSmartVisionResponse(userPrompt, providerName, modelName), nil
+}
+
+func (o *Orchestrator) GenerateTextWithModel(ctx context.Context, providerName, modelName, systemPrompt, userPrompt string) (string, error) {
+	return o.GenerateTextWithCustomKey(ctx, "", providerName, modelName, systemPrompt, userPrompt)
+}
+
+func (o *Orchestrator) GenerateVisionWithModel(ctx context.Context, providerName, modelName, systemPrompt, userPrompt string, imageBytes []byte, mimeType string) (string, error) {
+	return o.GenerateVisionWithCustomKey(ctx, "", providerName, modelName, systemPrompt, userPrompt, imageBytes, mimeType)
 }
 
 func (o *Orchestrator) GenerateText(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
@@ -653,9 +684,107 @@ func extractCleanPrompt(raw string) string {
 func generateSmartAcademicResponse(prompt, provider, model string) string {
 	cleanQuery := extractCleanPrompt(prompt)
 	lower := strings.ToLower(cleanQuery)
+	// 1. Direct Conversational & App Feature Queries (PDF, greetings, capabilities)
+	if strings.Contains(lower, "pdf") {
+		return `Haan bilkul! **StudySilo** me aap apne notes, flashcards aur study materials ko PDF format me export aur download kar sakte hain.
 
-	// Domain 1: Computer Architecture & Hardware Systems
-	if strings.Contains(lower, "architecture") || strings.Contains(lower, "computer") || strings.Contains(lower, "cpu") || strings.Contains(lower, "cache") || strings.Contains(lower, "pipeline") || strings.Contains(lower, "memory") || strings.Contains(lower, "von neumann") || strings.Contains(lower, "harvard") || strings.Contains(lower, "risc") || strings.Contains(lower, "cisc") || strings.Contains(lower, "bus") {
+### 📄 StudySilo me PDF kaise generate karein:
+1. **Notes Screen**: Kisi bhi note ko open karein aur top-right bar me **"Export PDF"** button par tap karein.
+2. **AI Study Material**: Main aapke liye kisi bhi subject (Physics, Math, Computer Science, etc.) ke clear revision notes yahan tayar kar sakta hoon, jise aap copy karke PDF bana sakte hain.
+3. **Quizzes & Formulas**: Formula Studio aur Adaptive Quizzes ko bhi review karke formatted documents me convert kiya ja sakta hai.
+
+Aapko abhi kis topic par notes ya material chahiye jise aap PDF banana chahte hain?`
+	}
+
+	if lower == "hi" || lower == "hello" || lower == "hey" || strings.HasPrefix(lower, "hello") || strings.HasPrefix(lower, "hi ") || strings.Contains(lower, "kaise ho") || strings.Contains(lower, "kya kar sakte ho") || strings.Contains(lower, "who are you") || strings.Contains(lower, "kaun ho") {
+		return `Hello! 👋 Main aapka **StudySilo AI Study Companion** hoon.
+
+Main aapke academic doubts solve karne, complex concepts ko aasan bhasha me samjhane, exam tips dene aur formulas explain karne ke liye tayar hoon.
+
+Aap mujhse koi bhi question puch sakte hain — bataiye aaj aap kya padhna chahte hain?`
+	}
+
+
+	// Domain 1: Memory Hierarchy in Computer Architecture (Registers, L1/L2/L3 Caches, Main Memory RAM, Secondary Storage)
+	if strings.Contains(lower, "hierarchy") || strings.Contains(lower, "memory hierarchy") || (strings.Contains(lower, "memory") && (strings.Contains(lower, "level") || strings.Contains(lower, "cache") || strings.Contains(lower, "ram") || strings.Contains(lower, "speed") || strings.Contains(lower, "sram"))) {
+		return `### 💡 Core Intuition & The Breakthrough ("Why This Exists")
+- **The Core Problem**: Fast memory (SRAM) is prohibitively expensive and physically limited in silicon die area, while dense, affordable memory (DRAM, SSD) is hundreds to millions of times slower than the CPU clock. If the CPU had to wait for main memory on every instruction, execution would stall for over 95% of execution cycles (The "Memory Wall").
+- **Mental Model & Analogy**: Think of **Memory Hierarchy** like a scholar's personal workspace:
+  * **Level 0 (Registers)**: Thoughts actively held in your working memory (instant, 0-1 cycle).
+  * **Level 1/2 (L1/L2 Cache)**: The notebook open on your desk (2-10 cycles).
+  * **Level 3 (L3 Cache)**: The bookshelf right beside your desk (20-40 cycles).
+  * **Level 4 (Main RAM)**: The college library down the corridor (100-200 cycles).
+  * **Level 5 (Secondary SSD/Disk)**: Ordering a book from a warehouse in another city ($10^5 - 10^7$ cycles).
+- **Academic Definition**: **Memory Hierarchy** is an architectural organization structuring memory components into hierarchical tiers based on increasing capacity and access latency, and decreasing cost-per-bit, dynamically governed by the **Principle of Locality**.
+
+### 🔬 Deep Mechanism & Structural Architecture
+
++-------------------------------------------------------------------------+
+| LEVEL 0: CPU REGISTERS   | < 1 ns  | ~1 KB      | Flip-Flops            |
++-------------------------------------------------------------------------+
+| LEVEL 1: L1 CACHE (I & D)| 1-2 ns  | 32-64 KB   | On-Chip SRAM (Static) |
++-------------------------------------------------------------------------+
+| LEVEL 2: L2 CACHE        | 3-10 ns | 256KB-1MB  | Dedicated SRAM        |
++-------------------------------------------------------------------------+
+| LEVEL 3: L3 CACHE        | 10-25 ns| 8-64 MB    | Shared On-Die SRAM    |
++-------------------------------------------------------------------------+
+| LEVEL 4: MAIN MEMORY     | 50-100ns| 8-64 GB    | DRAM (Capacitor+FET)  |
++-------------------------------------------------------------------------+
+| LEVEL 5: SECONDARY STORE | 10µs-5ms| 512GB-4TB  | NVMe SSD / Flash NAND |
++-------------------------------------------------------------------------+
+
+1. **Principle of Locality**:
+   - **Temporal Locality**: If an item is referenced, it will tend to be referenced again soon (e.g., loop counters, active function stack). Exploited by retaining recently used blocks in L1/L2 Cache.
+   - **Spatial Locality**: If an item is referenced, items with neighboring addresses will tend to be referenced soon (e.g., sequential array traversal). Exploited by fetching multi-byte **Cache Lines** (typically 64 bytes).
+
+2. **Cache Organization & Placement Policies**:
+   - **Direct-Mapped**: Block maps to exactly one cache set ($i = \text{Block Address} \pmod{\text{Cache Sets}}$). Low hit latency, higher conflict misses.
+   - **Set-Associative ($k$-way)**: Block maps to a set containing $k$ slots. Best balance of hardware complexity and miss rate.
+   - **Fully Associative**: Any block can be placed in any cache slot. Used in small structures like TLBs.
+
+### 📐 Governing Equations & Mathematical Formulation
+The quantitative performance of the memory hierarchy is determined by **Average Memory Access Time (AMAT)**:
+
+$$
+\boxed{\text{AMAT} = T_{\text{hit}} + (\text{Miss Rate} \times \text{Miss Penalty})}
+$$
+
+For a multi-level cache ($L_1, L_2$) system:
+$$
+\boxed{\text{AMAT} = T_{L1\_hit} + m_{L1} \times \left( T_{L2\_hit} + m_{L2\_local} \times T_{\text{mem\_penalty}} \right)}
+$$
+
+| Symbol | Parameter | SI Unit / Metric | Role in Memory Hierarchy |
+|:---:|:---|:---:|:---|
+| $\text{AMAT}$ | Average Memory Access Time | Nanoseconds ($\text{ns}$) | Effective latency experienced by the processor |
+| $T_{\text{hit}}$ | Cache Hit Time | Clock cycles / $\text{ns}$ | Latency to determine hit and transfer word |
+| $\text{Miss Rate}$ | Cache Miss Fraction | Dimensionless ($0 \le m \le 1$) | Fraction of total accesses resulting in a miss |
+| $\text{Miss Penalty}$ | Miss Service Latency | Nanoseconds ($\text{ns}$) | Additional time required to fetch block from lower level |
+
+### 🏆 Topper's Exam Scoring Blueprint
+- **Exam Weightage**: Highly frequent in **University 5-mark conceptual derivations** and **10-mark COA questions**.
+- **Mandatory Scoring Keywords**: **Temporal vs Spatial Locality**, **AMAT Formula**, **SRAM vs DRAM**, **Cache Hit/Miss Ratio**, **Write-Through vs Write-Back**, **Cache Line / Block Size**.
+- **Answer Sheet Presentation Tip**:
+  - Always sketch the **Memory Pyramid** indicating: Speed & Cost increase upward; Capacity increases downward.
+  - Distinguish between **Write-Through** (writes update both cache and lower memory simultaneously) and **Write-Back** (writes update only cache; dirty bit set; memory updated upon eviction).
+
+### ⚠️ Forensic Trap Warning (Where 90% Students Lose Marks)
+- ❌ **Common Student Blunder**: Stating that L1/L2 caches use DRAM because they store data, or confusing Local Miss Rate with Global Miss Rate in multi-level AMAT problems.
+- ✅ **Top Ranker Precision**: All CPU caches use fast multi-transistor **SRAM** (no refresh needed). Main RAM uses single-transistor-single-capacitor **DRAM** (requires periodic refresh).
+> ⚠️ COMMON EXAM TRAP:
+> In multi-level cache problems: $\text{Global Miss Rate}_{L2} = \text{Miss Rate}_{L1} \times \text{Local Miss Rate}_{L2}$. Never add miss rates directly!
+
+### 🚀 Modern Real-World & Industry Impact
+- **AMD 3D V-Cache & Apple Silicon Unified Memory**: Modern chips stack up to 96MB+ of L3 SRAM directly onto processor dies, cutting memory latency by up to 40% in compute-intensive workloads.
+
+### 📌 60-Second Fast Revision Punch
+- Memory Hierarchy balances CPU speed with cost and capacity using locality of reference.
+- $\text{AMAT} = T_{\text{hit}} + (\text{Miss Rate} \times \text{Miss Penalty})$.
+- L1/L2/L3 are on-chip SRAM; Main RAM is DRAM; Secondary is Flash/SSD.`
+	}
+
+	// Domain 2: Computer Architecture Fundamentals (CPU, ISA, Von Neumann vs Harvard)
+	if (strings.Contains(lower, "architecture") && !strings.Contains(lower, "hierarchy")) || strings.Contains(lower, "von neumann") || strings.Contains(lower, "harvard") || strings.Contains(lower, "instruction set") || strings.Contains(lower, "isa") || strings.Contains(lower, "risc") || strings.Contains(lower, "cisc") || (strings.Contains(lower, "cpu") && !strings.Contains(lower, "hierarchy") && !strings.Contains(lower, "memory")) {
 		return `### 💡 Core Intuition & The Breakthrough ("Why This Exists")
 - **The Core Problem**: Early computers were single-purpose calculating machines whose physical wiring had to be manually altered to run a new program. In 1945, John von Neumann and colleagues introduced the **Stored-Program Concept**, allowing instructions and data to share memory space and be manipulated identically.
 - **Mental Model & Analogy**: Think of **Computer Architecture** as the formal architectural blueprint and legal contract between the software programmer and the silicon hardware. Just as an architect specifies room layouts and plumbing connections without needing to invent individual bricks, Computer Architecture specifies the programmer-visible interface (**Instruction Set Architecture - ISA**) regardless of whether it's fabricated on 3nm TSMC or 14nm Intel silicon.
@@ -1043,56 +1172,70 @@ $$
 - Catalysts reduce activation energy without shifting equilibrium.`
 	}
 
-	// Domain 7: Universal High-Rigor Academic Synthesis for Any Question
-	tpl := `### 💡 Core Intuition & The Breakthrough ("Why This Exists")
-- **The Core Problem**: When studying **"{TOPIC}"**, conventional rote memorization leads to shallow recall that fails during unexpected examination variants.
-- **Mental Model & Analogy**: Treat this concept as a structural system composed of fundamental principles, governed by precise boundary constraints, and validated through analytical relationships.
-- **Academic Definition**: **"{TOPIC}"** represents a foundational principle within its academic discipline, defining the relationships between independent variables, state transitions, and observable outcomes.
+	// Domain 7: Data Structures, Algorithms & Computer Science
+	if strings.Contains(lower, "tree") || strings.Contains(lower, "graph") || strings.Contains(lower, "stack") || strings.Contains(lower, "queue") || strings.Contains(lower, "linked list") || strings.Contains(lower, "array") || strings.Contains(lower, "sort") || strings.Contains(lower, "binary search") || strings.Contains(lower, "dp") || strings.Contains(lower, "recursion") || strings.Contains(lower, "complexity") || strings.Contains(lower, "big o") || strings.Contains(lower, "deadlock") || strings.Contains(lower, "process") || strings.Contains(lower, "thread") || strings.Contains(lower, "paging") || strings.Contains(lower, "tcp") || strings.Contains(lower, "osi") {
+		return fmt.Sprintf(`### Foundation
+- **Core Concept**: **%s** is a fundamental Computer Science building block governing computational efficiency, data organization, and algorithmic state transitions.
+- **Intuition & Definition**: An abstraction structured to maximize retrieval/processing speed while maintaining deterministic invariant properties under memory constraints.
 
-### 🔬 Deep Mechanism & Structural Architecture
-1. **System Boundary & Governing Axioms**:
-   - Identify the independent variables and establish invariant boundary conditions.
-   - Deconstruct the problem into foundational components to observe how primary parameters interact.
-
-2. **Step-by-Step Working & Flow**:
-   - **Phase 1**: Initial condition setup and parameter definition.
-   - **Phase 2**: Application of governing principles and operational mechanisms.
-   - **Phase 3**: Resolution of constraints and validation of the resultant state.
-
-### 📐 Governing Equations & Mathematical Formulation
-The fundamental relationship can be modeled analytically through the governing state equation:
-
+### Deep Explanation
+- **Structural Mechanism & Operational Invariants**:
+  1. **State Invariant**: Every operation guarantees that structural invariants (order, balance, or mutual exclusion) are rigorously preserved.
+  2. **Step-by-Step Transition**: Input data is partitioned, mapped, or traversed through deterministic control-flow paths.
+  3. **Algorithmic Recurrence / Asymptotic Bound**:
 $$
-\boxed{\Phi_{\text{net}} = \sum_{i=1}^{n} \omega_i \cdot \psi_i(\mathbf{x}) \quad \text{under constraints} \quad g(\mathbf{x}) \le 0}
+\boxed{T(n) = \mathcal{O}(n \log n) \quad \text{or} \quad \mathcal{O}(\log n)}
 $$
+- **Real-World Engineering Application**: Modern database indexing (B+ Trees), OS kernel scheduling, and high-throughput network routing utilize this exact mechanism.
 
-| Symbol | Parameter | SI Unit / Type | Role in Formulation |
-|:---:|:---|:---:|:---|
-| $\Phi$ | Target System State | Standard Units | Quantifies the primary state variable |
-| $\omega_i$ | Weighting Coefficient | Dimensionless | Represents relative influence or sensitivity |
-| $\psi_i(\mathbf{x})$ | Basis Function | Analytical Function | Describes functional response under input vector $\mathbf{x}$ |
+### 💡 Exam Tips & High-Yield Points
+- **Scoring Keywords**: **Time Complexity $\mathcal{O}(n)$**, **Space Invariant**, **Base Case & Recursion Step**, **Worst-case vs Average-case**.
+- **Exam Weightage**: High frequency in **Technical Interviews, GATE CS, and 5-mark University Theory Papers**.
+- **Presentation Tip**: Always write both the recursive/iterative pseudocode and analyze time and space complexity ($T(n)$ and $S(n)$) side-by-side.
 
-### 🏆 Topper's Exam Scoring Blueprint
-- **Exam Weightage**: Key candidate for **3-mark conceptual reasoning** and **5-mark structured analytical questions**.
-- **Mandatory Scoring Keywords**: **Boundary Conditions**, **Governing Principle**, **Operational Mechanism**, **Analytical Validation**.
+### ⚠️ Common Misconceptions & Traps
+- ❌ **Common Mistake**: Confusing Worst-Case time with Average-Case, or forgetting boundary conditions ($n=0$ or null pointer checks).
+- ✅ **Correct Concept**: Always verify edge conditions (empty collections, single element, negative keys) before applying core logic.
 
-> 🎯 HIGH-YIELD EXAM FOCUS:
-> Always explicitly state initial assumptions and define all notation symbols before writing the final deduction to secure full marks.
+### 🔗 Related Concepts
+- **Interconnected Topics**: Dynamic Programming state space, divide-and-conquer recurrences, and memory cache spatial locality.
 
-### ⚠️ Forensic Trap Warning (Where 90% Students Lose Marks)
-- ❌ **Common Student Blunder**: Memorizing intermediate steps without verifying domain boundary constraints.
-- ✅ **Top Ranker Precision**: Always trace the derivation back to first principles to identify where simplifying assumptions break down.
-> ⚠️ COMMON EXAM TRAP:
-> Examiners deduct full marks if directional conventions, units, or boundary constraints are omitted from the final answer!
+### 📌 Key Takeaways
+- Precise invariance and boundary conditions dictate algorithmic correctness.
+- Always state asymptotic time and auxiliary space complexity in exam answers.`, cleanQuery)
+	}
 
-### 🚀 Modern Real-World & Industry Impact
-- This foundational concept forms the backbone of modern analytical methods, engineering designs, and computational problem-solving.
+	// Domain 8: Universal Comprehensive Academic Masterclass for Any Topic
+	return fmt.Sprintf(`### Foundation
+- **Core Concept**: **%s** is a foundational concept in the academic curriculum governing specific system behaviors and relationships.
+- **Intuition & Definition**: At its core, **%s** establishes how components interact under given initial conditions and constraints to produce predictable outcomes.
 
-### 📌 60-Second Fast Revision Punch
-- State the core definition and initial assumptions explicitly.
-- Verify dimensional consistency and boundary behavior before final substitution.
-- Highlight keywords and box final expressions for maximum scoring impact.`
-	return strings.ReplaceAll(tpl, "{TOPIC}", cleanQuery)
+### Deep Explanation
+- **Mechanism & Underlying Principles**:
+  1. The process begins with defined inputs or parameters that dictate system state.
+  2. Intermediate transitions occur strictly following fundamental conservation laws and logical consistency rules.
+  3. The final steady state or result directly reflects the applied governing factors.
+- **Mathematical / Formal Representation**:
+$$
+\boxed{\text{System Output} = f(\text{Inputs}, \text{Boundary Constraints})}
+$$
+- **Practical Application**: This principle directly underpins modern engineering designs, scientific experimental analyses, and standard examination problems.
+
+### 💡 Exam Tips & High-Yield Points
+- **Scoring Keywords**: Always include exact definitions, boundary conditions, standard assumptions, and SI units where applicable.
+- **Exam Weightage**: Frequently tested in conceptual 3-mark short answers and 5-mark descriptive questions.
+- **Presentation Tip**: Draw a clear labeled diagram or flowchart where applicable, highlight key definitions in bold, and enclose final conclusions in a box.
+
+### ⚠️ Common Misconceptions & Traps
+- ❌ **Common Mistake**: Confusing theoretical ideal assumptions with real-world operating limits.
+- ✅ **Correct Concept**: Always state the domain of validity and conditions under which the principle holds true.
+
+### 🔗 Related Concepts
+- **Interconnected Topics**: Review prerequisite fundamentals, complementary theorems, and downstream applications linked to **%s**.
+
+### 📌 Key Takeaways
+- **%s** forms a vital pillar for conceptual mastery in this subject.
+- Ensure all definitions, governing laws, and units are precisely stated for full exam credit.`, cleanQuery, cleanQuery, cleanQuery, cleanQuery)
 }
 
 func generateSmartVisionResponse(prompt, provider, model string) string {
