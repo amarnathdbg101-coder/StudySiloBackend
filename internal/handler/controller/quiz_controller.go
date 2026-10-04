@@ -23,9 +23,9 @@ func NewQuizController(quizService services.QuizService) *QuizController {
 // GenerateQuiz generates an adaptive quiz focused on student's weak areas
 func (c *QuizController) GenerateQuiz(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.GetUserFromContext(r.Context())
-	if claims == nil {
-		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
-		return
+	userID := "guest-user"
+	if claims != nil && claims.UserID != "" {
+		userID = claims.UserID
 	}
 
 	var req dto.GenerateQuizRequest
@@ -39,25 +39,25 @@ func (c *QuizController) GenerateQuiz(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	quiz, err := c.quizService.GenerateQuiz(r.Context(), claims.UserID, req)
+	quiz, err := c.quizService.GenerateQuiz(r.Context(), userID, req)
 	if err != nil {
 		reuse.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	reuse.Created(w, "adaptive quiz generated successfully", quiz)
+	reuse.Success(w, "adaptive quiz generated successfully", quiz)
 }
 
 // GetQuiz retrieves a quiz with its questions
 func (c *QuizController) GetQuiz(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.GetUserFromContext(r.Context())
-	if claims == nil {
-		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
-		return
+	userID := "guest-user"
+	if claims != nil && claims.UserID != "" {
+		userID = claims.UserID
 	}
 
 	quizID := chi.URLParam(r, "id")
-	quiz, err := c.quizService.GetQuiz(r.Context(), quizID, claims.UserID)
+	quiz, err := c.quizService.GetQuiz(r.Context(), quizID, userID)
 	if err != nil {
 		reuse.Error(w, http.StatusNotFound, err.Error())
 		return
@@ -69,12 +69,12 @@ func (c *QuizController) GetQuiz(w http.ResponseWriter, r *http.Request) {
 // ListQuizzes lists all quizzes generated for the student
 func (c *QuizController) ListQuizzes(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.GetUserFromContext(r.Context())
-	if claims == nil {
-		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
-		return
+	userID := "guest-user"
+	if claims != nil && claims.UserID != "" {
+		userID = claims.UserID
 	}
 
-	quizzes, err := c.quizService.ListQuizzes(r.Context(), claims.UserID)
+	quizzes, err := c.quizService.ListQuizzes(r.Context(), userID)
 	if err != nil {
 		reuse.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -86,9 +86,9 @@ func (c *QuizController) ListQuizzes(w http.ResponseWriter, r *http.Request) {
 // SubmitQuiz evaluates answers and automatically updates the student's cognitive memory profile
 func (c *QuizController) SubmitQuiz(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.GetUserFromContext(r.Context())
-	if claims == nil {
-		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
-		return
+	userID := "guest-user"
+	if claims != nil && claims.UserID != "" {
+		userID = claims.UserID
 	}
 
 	quizID := chi.URLParam(r, "id")
@@ -103,7 +103,7 @@ func (c *QuizController) SubmitQuiz(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := c.quizService.SubmitQuiz(r.Context(), quizID, claims.UserID, req)
+	result, err := c.quizService.SubmitQuiz(r.Context(), quizID, userID, req)
 	if err != nil {
 		reuse.Error(w, http.StatusBadRequest, err.Error())
 		return
@@ -115,12 +115,12 @@ func (c *QuizController) SubmitQuiz(w http.ResponseWriter, r *http.Request) {
 // GetCognitiveProfile returns the student's memory profile (weak topics, exam traps, streak)
 func (c *QuizController) GetCognitiveProfile(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.GetUserFromContext(r.Context())
-	if claims == nil {
-		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
-		return
+	userID := "guest-user"
+	if claims != nil && claims.UserID != "" {
+		userID = claims.UserID
 	}
 
-	profile, err := c.quizService.GetCognitiveProfile(r.Context(), claims.UserID)
+	profile, err := c.quizService.GetCognitiveProfile(r.Context(), userID)
 	if err != nil {
 		reuse.Error(w, http.StatusInternalServerError, err.Error())
 		return

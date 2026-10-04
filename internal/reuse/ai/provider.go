@@ -609,13 +609,34 @@ func (o *Orchestrator) GenerateStructured(ctx context.Context, systemPrompt, use
 
 func cleanJSONString(raw string) string {
 	s := strings.TrimSpace(raw)
-	if strings.HasPrefix(s, "```json") {
-		s = strings.TrimPrefix(s, "```json")
-		s = strings.TrimSuffix(s, "```")
-	} else if strings.HasPrefix(s, "```") {
-		s = strings.TrimPrefix(s, "```")
-		s = strings.TrimSuffix(s, "```")
+
+	// Extract content from markdown fence if present anywhere in text
+	if idx := strings.Index(s, "```json"); idx != -1 {
+		s = s[idx+len("```json"):]
+		if end := strings.Index(s, "```"); end != -1 {
+			s = s[:end]
+		}
+	} else if idx := strings.Index(s, "```"); idx != -1 {
+		s = s[idx+len("```"):]
+		if end := strings.Index(s, "```"); end != -1 {
+			s = s[:end]
+		}
 	}
+
+	// Extract innermost balanced outer JSON object or array
+	firstBrace := strings.IndexAny(s, "{[")
+	if firstBrace != -1 {
+		var lastBrace int
+		if s[firstBrace] == '{' {
+			lastBrace = strings.LastIndex(s, "}")
+		} else {
+			lastBrace = strings.LastIndex(s, "]")
+		}
+		if lastBrace != -1 && lastBrace > firstBrace {
+			s = s[firstBrace : lastBrace+1]
+		}
+	}
+
 	return strings.TrimSpace(s)
 }
 

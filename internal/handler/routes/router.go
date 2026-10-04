@@ -95,23 +95,19 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 			})
 		})
 
-		// Protected Learning Routes (Requires Authentication)
-		r.Group(func(r chi.Router) {
-			r.Use(middleware.JWTAuth(cfg.JwtSecret))
+		// Adaptive AI Quizzes (Guest & Authenticated)
+		r.Route("/quizzes", func(r chi.Router) {
+			r.Use(middleware.OptionalJWTAuth(cfg.JwtSecret))
+			r.Get("/", quizCtrl.ListQuizzes)
+			r.Post("/generate", quizCtrl.GenerateQuiz)
+			r.Get("/{id}", quizCtrl.GetQuiz)
+			r.Post("/{id}/submit", quizCtrl.SubmitQuiz)
+		})
 
-			// Adaptive AI Quizzes
-			r.Route("/quizzes", func(r chi.Router) {
-				r.Get("/", quizCtrl.ListQuizzes)
-				r.Post("/generate", quizCtrl.GenerateQuiz)
-				r.Get("/{id}", quizCtrl.GetQuiz)
-				r.Post("/{id}/submit", quizCtrl.SubmitQuiz)
-			})
-
-			// Student Cognitive AI Memory Profile
-			r.Route("/profile/cognitive", func(r chi.Router) {
-				r.Get("/", quizCtrl.GetCognitiveProfile)
-				r.Put("/", quizCtrl.UpdateCognitiveProfile)
-			})
+		// Student Cognitive AI Memory Profile
+		r.Route("/profile/cognitive", func(r chi.Router) {
+			r.With(middleware.OptionalJWTAuth(cfg.JwtSecret)).Get("/", quizCtrl.GetCognitiveProfile)
+			r.With(middleware.JWTAuth(cfg.JwtSecret)).Put("/", quizCtrl.UpdateCognitiveProfile)
 		})
 	})
 

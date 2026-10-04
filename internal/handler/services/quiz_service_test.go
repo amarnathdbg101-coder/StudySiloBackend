@@ -153,3 +153,67 @@ func TestQuizService_GenerateAndSubmitFlow(t *testing.T) {
 		t.Errorf("expected updated study streak, got %d", profile.StudyStreakDays)
 	}
 }
+
+func TestQuizService_GuestUserAndFallback(t *testing.T) {
+	orch := ai.NewOrchestrator([]string{}, []string{}, []string{})
+	service := NewQuizService(nil, nil, orch)
+	ctx := context.Background()
+
+	// 1. Generate Quiz as Guest with 5 questions
+	genReq := dto.GenerateQuizRequest{
+		Topic:         "Computer Architecture",
+		Difficulty:    "adaptive",
+		QuestionCount: 5,
+	}
+
+	quiz, err := service.GenerateQuiz(ctx, "guest-user", genReq)
+	if err != nil {
+		t.Fatalf("failed to generate guest quiz: %v", err)
+	}
+
+	if quiz == nil || len(quiz.Questions) != 5 {
+		t.Fatalf("expected 5 questions for guest quiz, got %v", quiz)
+	}
+
+	for i, q := range quiz.Questions {
+		if q.QuestionText == "" {
+			t.Errorf("question %d has empty text", i)
+		}
+		if len(q.Options) != 4 {
+			t.Errorf("question %d does not have 4 options: %d", i, len(q.Options))
+		}
+		if q.Explanation == "" {
+			t.Errorf("question %d has empty explanation", i)
+		}
+		if q.TrapWarning == "" {
+			t.Errorf("question %d has empty trap warning", i)
+		}
+	}
+
+	// 2. Submit Quiz as Guest
+	answers := make([]dto.QuestionAnswerInput, len(quiz.Questions))
+	for i, q := range quiz.Questions {
+		answers[i] = dto.QuestionAnswerInput{
+			QuestionID:     q.ID,
+			SelectedOption: q.CorrectOptionIndex, // All correct
+		}
+	}
+
+	subReq := dto.SubmitQuizRequest{
+		TimeTakenSeconds: 90,
+		Answers:          answers,
+	}
+
+	result, err := service.SubmitQuiz(ctx, quiz.ID, "guest-user", subReq)
+	if err != nil {
+		t.Fatalf("failed to submit guest quiz: %v", err)
+	}
+
+	if result.Score != 5 || result.Percentage != 100.0 {
+		t.Errorf("expected 100%% score, got score=%d percentage=%f", result.Score, result.Percentage)
+	}
+	if len(result.Feedback) != 5 {
+		t.Errorf("expected 5 feedbacks, got %d", len(result.Feedback))
+	}
+}
+

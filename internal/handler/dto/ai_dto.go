@@ -81,23 +81,31 @@ type MindMapNode struct {
 }
 
 type GraphNode struct {
-	ID       string  `json:"id"`
-	Label    string  `json:"label"`
-	X        float64 `json:"x"`
-	Y        float64 `json:"y"`
-	Shape    string  `json:"shape"`
-	ColorHex string  `json:"color_hex"`
+	ID          string   `json:"id"`
+	Label       string   `json:"label"`
+	Description string   `json:"description,omitempty"`
+	NodeType    string   `json:"node_type,omitempty"`
+	X           float64  `json:"x,omitempty"`
+	Y           float64  `json:"y,omitempty"`
+	Width       float64  `json:"width,omitempty"`
+	Height      float64  `json:"height,omitempty"`
+	Shape       string   `json:"shape,omitempty"`
+	ColorHex    string   `json:"color_hex"`
+	Formulas    []string `json:"formulas,omitempty"`
 }
 
 type GraphEdge struct {
-	From  string `json:"from"`
-	To    string `json:"to"`
-	Label string `json:"label"`
-	Arrow bool   `json:"arrow"`
+	From   string `json:"from"`
+	To     string `json:"to"`
+	FromID string `json:"from_id,omitempty"`
+	ToID   string `json:"to_id,omitempty"`
+	Label  string `json:"label"`
+	Arrow  bool   `json:"arrow"`
 }
 
 type DiagramResponse struct {
 	Concept     string        `json:"concept"`
+	Title       string        `json:"title,omitempty"`
 	DiagramType string        `json:"diagram_type"`
 	Root        *MindMapNode  `json:"root,omitempty"`
 	Nodes       []GraphNode   `json:"nodes,omitempty"`

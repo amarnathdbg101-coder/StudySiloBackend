@@ -15,7 +15,7 @@ type Quiz struct {
 	Difficulty     string          `json:"difficulty" db:"difficulty"`
 	TotalQuestions int             `json:"total_questions" db:"total_questions"`
 	CreatedAt      time.Time       `json:"created_at" db:"created_at"`
-	Questions      []*QuizQuestion `json:"questions,omitempty"`
+	Questions      []*QuizQuestion `json:"questions"`
 }
 
 // QuizQuestion represents an individual question in a quiz.
