@@ -58,6 +58,9 @@ func (s *aiTutorService) SolveDoubt(ctx context.Context, userID string, req dto.
 	if userID != "" && s.chatRepo != nil && sessionID != "" {
 		history, _ = s.chatRepo.ListSessionMessages(ctx, userID, sessionID, 100)
 	}
+	if len(history) == 0 {
+		history = conversationTurnsToMessages(req.ConversationHistory)
+	}
 	userQuery := buildTutorUserQuery(req.Question, req.ContextNotes, history)
 
 	provider := req.Provider
@@ -385,6 +388,27 @@ func buildTutorUserQuery(question, contextNotes string, history []*model.ChatMes
 
 	sections = append(sections, "[CURRENT QUESTION - answer this request]\n"+question)
 	return strings.Join(sections, "\n\n")
+}
+
+func conversationTurnsToMessages(turns []dto.ConversationTurn) []*model.ChatMessage {
+	start := len(turns) - 8
+	if start < 0 {
+		start = 0
+	}
+
+	messages := make([]*model.ChatMessage, 0, len(turns)-start)
+	for _, turn := range turns[start:] {
+		role := strings.ToLower(strings.TrimSpace(turn.Role))
+		content := strings.TrimSpace(turn.Content)
+		if (role != "user" && role != "assistant") || content == "" {
+			continue
+		}
+		if runes := []rune(content); len(runes) > 1200 {
+			content = string(runes[:1200]) + "..."
+		}
+		messages = append(messages, &model.ChatMessage{Role: role, Content: content})
+	}
+	return messages
 }
 
 func buildTutorPrompt(mode, question, contextNotes string) string {

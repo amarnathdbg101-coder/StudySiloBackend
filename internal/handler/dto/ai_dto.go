@@ -5,22 +5,28 @@ package dto
 // ---------------------------------------------------------------------------
 
 type DoubtRequest struct {
-	Question      string   `json:"question" validate:"required,min=2"`
-	ScopeType     string   `json:"scope_type" validate:"omitempty,oneof=global course folder note chat session"`
-	ScopeID       string   `json:"scope_id"`
-	SessionID     string   `json:"session_id,omitempty"`
-	ImageBase64   string   `json:"image_base64"`
-	ImageMimeType string   `json:"image_mime_type"`
-	AudioBase64   string   `json:"audio_base64"`
-	AudioMimeType string   `json:"audio_mime_type"`
-	ContextNotes  string   `json:"context_notes"`
-	Provider      string   `json:"provider"`
-	Model         string   `json:"model"`
-	Mode          string   `json:"mode"`
-	TargetExam    string   `json:"target_exam"`
-	AcademicLevel string   `json:"academic_level"`
-	WeakTopics    []string `json:"weak_topics"`
-	APIKey        string   `json:"api_key,omitempty"`
+	Question            string             `json:"question" validate:"required,min=2"`
+	ScopeType           string             `json:"scope_type" validate:"omitempty,oneof=global course folder note chat session"`
+	ScopeID             string             `json:"scope_id"`
+	SessionID           string             `json:"session_id,omitempty"`
+	ConversationHistory []ConversationTurn `json:"conversation_history,omitempty"`
+	ImageBase64         string             `json:"image_base64"`
+	ImageMimeType       string             `json:"image_mime_type"`
+	AudioBase64         string             `json:"audio_base64"`
+	AudioMimeType       string             `json:"audio_mime_type"`
+	ContextNotes        string             `json:"context_notes"`
+	Provider            string             `json:"provider"`
+	Model               string             `json:"model"`
+	Mode                string             `json:"mode"`
+	TargetExam          string             `json:"target_exam"`
+	AcademicLevel       string             `json:"academic_level"`
+	WeakTopics          []string           `json:"weak_topics"`
+	APIKey              string             `json:"api_key,omitempty"`
+}
+
+type ConversationTurn struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
 }
 
 type DoubtResponse struct {
