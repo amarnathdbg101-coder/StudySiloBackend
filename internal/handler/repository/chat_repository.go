@@ -19,6 +19,7 @@ type ChatRepository interface {
 	TouchSession(ctx context.Context, userID, sessionID string) error
 	UpdateSession(ctx context.Context, userID, sessionID, title string) error
 	DeleteSession(ctx context.Context, userID, sessionID string) error
+	ReplaceLastQuestion(ctx context.Context, userID, sessionID, content string) error
 	ListSessionMessages(ctx context.Context, userID, sessionID string, limit int) ([]*model.ChatMessage, error)
 }
 
@@ -154,6 +155,43 @@ func (r *chatRepo) DeleteSession(ctx context.Context, userID, sessionID string) 
 	_, _ = r.db.Exec(ctx, `DELETE FROM chat_messages WHERE user_id = $1 AND scope_id = $2`, userID, sessionID)
 	_, err := r.db.Exec(ctx, `DELETE FROM chat_sessions WHERE user_id = $1 AND id = $2::uuid`, userID, sessionID)
 	return err
+}
+
+func (r *chatRepo) ReplaceLastQuestion(ctx context.Context, userID, sessionID, content string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin chat turn replacement: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var questionID string
+	err = tx.QueryRow(ctx, `
+		SELECT id::text FROM chat_messages
+		WHERE user_id = $1 AND scope_id = $2 AND role = 'user'
+		ORDER BY created_at DESC LIMIT 1 FOR UPDATE
+	`, userID, sessionID).Scan(&questionID)
+	if err != nil {
+		return fmt.Errorf("failed to find latest user question: %w", err)
+	}
+
+	_, err = tx.Exec(ctx, `
+		DELETE FROM chat_messages
+		WHERE user_id = $1 AND scope_id = $2 AND created_at > (
+			SELECT created_at FROM chat_messages WHERE id = $3::uuid AND user_id = $1 AND scope_id = $2
+		)
+	`, userID, sessionID, questionID)
+	if err != nil {
+		return fmt.Errorf("failed to remove previous turn responses: %w", err)
+	}
+
+	_, err = tx.Exec(ctx, `UPDATE chat_messages SET content = $3 WHERE id = $1::uuid AND user_id = $2`, questionID, userID, content)
+	if err != nil {
+		return fmt.Errorf("failed to update latest user question: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit chat turn replacement: %w", err)
+	}
+	return nil
 }
 
 func (r *chatRepo) ListSessionMessages(ctx context.Context, userID, sessionID string, limit int) ([]*model.ChatMessage, error) {

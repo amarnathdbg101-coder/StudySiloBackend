@@ -5,23 +5,25 @@ package dto
 // ---------------------------------------------------------------------------
 
 type DoubtRequest struct {
-	Question            string             `json:"question" validate:"required,min=2"`
-	ScopeType           string             `json:"scope_type" validate:"omitempty,oneof=global course folder note chat session"`
-	ScopeID             string             `json:"scope_id"`
-	SessionID           string             `json:"session_id,omitempty"`
-	ConversationHistory []ConversationTurn `json:"conversation_history,omitempty"`
-	ImageBase64         string             `json:"image_base64"`
-	ImageMimeType       string             `json:"image_mime_type"`
-	AudioBase64         string             `json:"audio_base64"`
-	AudioMimeType       string             `json:"audio_mime_type"`
-	ContextNotes        string             `json:"context_notes"`
-	Provider            string             `json:"provider"`
-	Model               string             `json:"model"`
-	Mode                string             `json:"mode"`
-	TargetExam          string             `json:"target_exam"`
-	AcademicLevel       string             `json:"academic_level"`
-	WeakTopics          []string           `json:"weak_topics"`
-	APIKey              string             `json:"api_key,omitempty"`
+	Question             string             `json:"question" validate:"required,min=2"`
+	ScopeType            string             `json:"scope_type" validate:"omitempty,oneof=global course folder note chat session"`
+	ScopeID              string             `json:"scope_id"`
+	SessionID            string             `json:"session_id,omitempty"`
+	ConversationHistory  []ConversationTurn `json:"conversation_history,omitempty"`
+	RegenerateLastAnswer bool               `json:"regenerate_last_answer,omitempty"`
+	EditLastQuestion     bool               `json:"edit_last_question,omitempty"`
+	ImageBase64          string             `json:"image_base64"`
+	ImageMimeType        string             `json:"image_mime_type"`
+	AudioBase64          string             `json:"audio_base64"`
+	AudioMimeType        string             `json:"audio_mime_type"`
+	ContextNotes         string             `json:"context_notes"`
+	Provider             string             `json:"provider"`
+	Model                string             `json:"model"`
+	Mode                 string             `json:"mode"`
+	TargetExam           string             `json:"target_exam"`
+	AcademicLevel        string             `json:"academic_level"`
+	WeakTopics           []string           `json:"weak_topics"`
+	APIKey               string             `json:"api_key,omitempty"`
 }
 
 type ConversationTurn struct {
@@ -91,11 +93,11 @@ type DiagramRequest struct {
 }
 
 type MindMapNode struct {
-	ID        string         `json:"id"`
-	Label     string         `json:"label"`
-	Details   string         `json:"details"`
-	ColorHex  string         `json:"color_hex"`
-	Children  []*MindMapNode `json:"children"`
+	ID       string         `json:"id"`
+	Label    string         `json:"label"`
+	Details  string         `json:"details"`
+	ColorHex string         `json:"color_hex"`
+	Children []*MindMapNode `json:"children"`
 }
 
 type GraphNode struct {
@@ -122,10 +124,10 @@ type GraphEdge struct {
 }
 
 type DiagramResponse struct {
-	Concept     string        `json:"concept"`
-	Title       string        `json:"title,omitempty"`
-	DiagramType string        `json:"diagram_type"`
-	Root        *MindMapNode  `json:"root,omitempty"`
-	Nodes       []GraphNode   `json:"nodes,omitempty"`
-	Edges       []GraphEdge   `json:"edges,omitempty"`
+	Concept     string       `json:"concept"`
+	Title       string       `json:"title,omitempty"`
+	DiagramType string       `json:"diagram_type"`
+	Root        *MindMapNode `json:"root,omitempty"`
+	Nodes       []GraphNode  `json:"nodes,omitempty"`
+	Edges       []GraphEdge  `json:"edges,omitempty"`
 }

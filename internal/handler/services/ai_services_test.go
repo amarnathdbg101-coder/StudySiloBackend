@@ -13,6 +13,8 @@ import (
 type mockChatRepo struct {
 	messages                []*model.ChatMessage
 	listSessionMessagesCall int
+	replaceLastQuestionCall int
+	replacedQuestion        string
 }
 
 type mockAITutorGenerator struct {
@@ -77,6 +79,12 @@ func (m *mockChatRepo) UpdateSession(ctx context.Context, userID, sessionID, tit
 }
 
 func (m *mockChatRepo) DeleteSession(ctx context.Context, userID, sessionID string) error {
+	return nil
+}
+
+func (m *mockChatRepo) ReplaceLastQuestion(_ context.Context, _, _, content string) error {
+	m.replaceLastQuestionCall++
+	m.replacedQuestion = content
 	return nil
 }
 
@@ -210,6 +218,58 @@ func TestAITutorService_SolveDoubtStream(t *testing.T) {
 	}
 	if strings.Join(chunks, "") != response.SolutionMarkdown || len(chunks) != 2 {
 		t.Fatalf("expected two ordered chunks composing the final answer, got %v", chunks)
+	}
+}
+
+func TestAITutorService_ReplacesStoredTurnForRegenerateAndEdit(t *testing.T) {
+	for _, testCase := range []struct {
+		name       string
+		request    dto.DoubtRequest
+		wantPrompt string
+	}{
+		{
+			name: "regenerate",
+			request: dto.DoubtRequest{
+				Question:             "Explain merge sort",
+				SessionID:            "session-1",
+				ScopeType:            "chat",
+				RegenerateLastAnswer: true,
+				ConversationHistory:  []dto.ConversationTurn{{Role: "user", Content: "What is a sorting algorithm?"}},
+			},
+			wantPrompt: "What is a sorting algorithm?",
+		},
+		{
+			name: "edit",
+			request: dto.DoubtRequest{
+				Question:            "Explain merge sort with an example",
+				SessionID:           "session-1",
+				ScopeType:           "chat",
+				EditLastQuestion:    true,
+				ConversationHistory: []dto.ConversationTurn{{Role: "user", Content: "What is a sorting algorithm?"}},
+			},
+			wantPrompt: "What is a sorting algorithm?",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			repo := &mockChatRepo{}
+			generator := &mockAITutorGenerator{response: "Replacement answer"}
+			tutor := NewAITutorService(generator, repo)
+			if _, err := tutor.SolveDoubt(context.Background(), "user-1", testCase.request); err != nil {
+				t.Fatalf("SolveDoubt() error = %v", err)
+			}
+			if repo.replaceLastQuestionCall != 1 || repo.replacedQuestion != testCase.request.Question {
+				t.Errorf("expected saved turn to be replaced with %q, got %d calls and %q", testCase.request.Question, repo.replaceLastQuestionCall, repo.replacedQuestion)
+			}
+			if repo.listSessionMessagesCall != 0 {
+				t.Errorf("expected request history for replacement, got %d database history reads", repo.listSessionMessagesCall)
+			}
+			if !strings.Contains(generator.lastUserPrompt, testCase.wantPrompt) || !strings.Contains(generator.lastUserPrompt, testCase.request.Question) {
+				t.Errorf("expected prior context and replacement question in prompt, got %q", generator.lastUserPrompt)
+			}
+			if len(repo.messages) != 1 || repo.messages[0].Role != "assistant" {
+				t.Errorf("expected only replacement assistant answer to be saved, got %#v", repo.messages)
+			}
+		})
 	}
 }
 

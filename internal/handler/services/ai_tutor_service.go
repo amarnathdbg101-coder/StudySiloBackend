@@ -67,10 +67,11 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 	}
 
 	var history []*model.ChatMessage
-	if userID != "" && s.chatRepo != nil && sessionID != "" {
+	usesClientHistory := req.RegenerateLastAnswer || req.EditLastQuestion
+	if !usesClientHistory && userID != "" && s.chatRepo != nil && sessionID != "" {
 		history, _ = s.chatRepo.ListSessionMessages(ctx, userID, sessionID, 100)
 	}
-	if len(history) == 0 {
+	if usesClientHistory || len(history) == 0 {
 		history = conversationTurnsToMessages(req.ConversationHistory)
 	}
 	userQuery := buildTutorUserQuery(req.Question, req.ContextNotes, history)
@@ -186,13 +187,21 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 			effectiveScopeID = req.ScopeID
 		}
 
-		_ = s.chatRepo.SaveMessage(ctx, &model.ChatMessage{
-			UserID:    userID,
-			ScopeType: scopeType,
-			ScopeID:   effectiveScopeID,
-			Role:      "user",
-			Content:   req.Question,
-		})
+		if req.RegenerateLastAnswer || req.EditLastQuestion {
+			if effectiveScopeID != "" {
+				if err := s.chatRepo.ReplaceLastQuestion(ctx, userID, effectiveScopeID, req.Question); err != nil {
+					return nil, fmt.Errorf("failed to replace chat turn: %w", err)
+				}
+			}
+		} else {
+			_ = s.chatRepo.SaveMessage(ctx, &model.ChatMessage{
+				UserID:    userID,
+				ScopeType: scopeType,
+				ScopeID:   effectiveScopeID,
+				Role:      "user",
+				Content:   req.Question,
+			})
+		}
 		_ = s.chatRepo.SaveMessage(ctx, &model.ChatMessage{
 			UserID:    userID,
 			ScopeType: scopeType,
