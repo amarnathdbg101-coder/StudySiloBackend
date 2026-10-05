@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 
 	"goProjectStructure/internal/handler/dto"
 	"goProjectStructure/internal/handler/services"
@@ -63,12 +64,23 @@ func (c *AIController) SolveDoubt(w http.ResponseWriter, r *http.Request) {
 		log.Printf("AI doubt generation failed: %v", err)
 		reuse.JSON(w, http.StatusServiceUnavailable, reuse.Response{
 			Success: false,
-			Error:   "AI service is unavailable. Add or verify a Gemini API key in the AI Tutor key vault, or configure GEMINI_API_KEY on the backend, then retry.",
+			Error:   publicAIError(err, req.APIKey),
 		})
 		return
 	}
 
 	reuse.Success(w, "doubt answered successfully", resp)
+}
+
+func publicAIError(err error, apiKey string) string {
+	detail := strings.TrimSpace(err.Error())
+	if apiKey != "" {
+		detail = strings.ReplaceAll(detail, apiKey, "[redacted]")
+	}
+	if len(detail) > 600 {
+		detail = detail[:600] + "..."
+	}
+	return "AI generation failed: " + detail
 }
 
 // GetChatHistory returns multi-modal conversation history

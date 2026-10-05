@@ -2,10 +2,18 @@ package ai
 
 import (
 	"context"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 func TestKeyRotator_RoundRobin(t *testing.T) {
 	keys := []string{"key-1", "key-2", "key-3"}
@@ -110,6 +118,69 @@ func TestGetGeminiCandidatesExcludeShutdownModels(t *testing.T) {
 				t.Errorf("candidate list for %q contains shut-down model %q", model, candidate)
 			}
 		}
+	}
+}
+
+func TestGeminiRetriesWithNextKeyAfterRateLimit(t *testing.T) {
+	var usedKeys []string
+	provider := NewGeminiProvider([]string{"key-1", "key-2"}, "gemini-3.8-flash")
+	provider.httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		key := req.Header.Get("x-goog-api-key")
+		usedKeys = append(usedKeys, key)
+		statusCode := http.StatusOK
+		body := `{"candidates":[{"content":{"parts":[{"text":"fresh answer"}]}}]}`
+		if key == "key-1" {
+			statusCode = http.StatusTooManyRequests
+			body = `{"error":{"message":"quota exceeded"}}`
+		}
+		return &http.Response{
+			StatusCode: statusCode,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     make(http.Header),
+			Request:    req,
+		}, nil
+	})}
+
+	answer, err := provider.GenerateText(context.Background(), "system", "question")
+	if err != nil {
+		t.Fatalf("expected the second key to succeed, got error: %v", err)
+	}
+	if answer != "fresh answer" {
+		t.Fatalf("expected fresh answer, got %q", answer)
+	}
+	if len(usedKeys) != 2 || usedKeys[0] != "key-1" || usedKeys[1] != "key-2" {
+		t.Fatalf("expected one attempt per key, got %v", usedKeys)
+	}
+}
+
+func TestGeminiRetriesNextModelAfterServiceUnavailable(t *testing.T) {
+	var requestedModels []string
+	provider := NewGeminiProvider([]string{"key-1"}, "gemini-3.8-flash")
+	provider.httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requestedModels = append(requestedModels, req.URL.Path)
+		statusCode := http.StatusOK
+		body := `{"candidates":[{"content":{"parts":[{"text":"fallback model answer"}]}}]}`
+		if strings.Contains(req.URL.Path, "gemini-3.8-flash") {
+			statusCode = http.StatusServiceUnavailable
+			body = `{"error":{"message":"model temporarily unavailable"}}`
+		}
+		return &http.Response{
+			StatusCode: statusCode,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     make(http.Header),
+			Request:    req,
+		}, nil
+	})}
+
+	answer, err := provider.GenerateText(context.Background(), "system", "question")
+	if err != nil {
+		t.Fatalf("expected fallback model to succeed, got error: %v", err)
+	}
+	if answer != "fallback model answer" {
+		t.Fatalf("expected fallback model answer, got %q", answer)
+	}
+	if len(requestedModels) != 2 || !strings.Contains(requestedModels[0], "gemini-3.8-flash") || !strings.Contains(requestedModels[1], "gemini-3.7-flash") {
+		t.Fatalf("expected 3.8 then 3.7 Flash attempts, got %v", requestedModels)
 	}
 }
 

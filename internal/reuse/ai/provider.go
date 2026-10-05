@@ -98,6 +98,10 @@ func (g *GeminiProvider) Name() string {
 }
 
 func (g *GeminiProvider) GenerateText(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	return g.generateText(ctx, systemPrompt, userPrompt, g.rotator.KeyCount())
+}
+
+func (g *GeminiProvider) generateText(ctx context.Context, systemPrompt, userPrompt string, remainingKeyAttempts int) (string, error) {
 	key, err := g.rotator.GetNextKey()
 	if err != nil {
 		return "", err
@@ -105,6 +109,7 @@ func (g *GeminiProvider) GenerateText(ctx context.Context, systemPrompt, userPro
 
 	candidateModels := getGeminiCandidates(g.model)
 	var lastErr error
+	markKeyError := false
 
 	for _, mod := range candidateModels {
 		url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", mod)
@@ -146,6 +151,7 @@ func (g *GeminiProvider) GenerateText(ctx context.Context, systemPrompt, userPro
 		resp, err := g.httpClient.Do(req)
 		if err != nil {
 			lastErr = err
+			markKeyError = true
 			continue
 		}
 
@@ -215,10 +221,21 @@ func (g *GeminiProvider) GenerateText(ctx context.Context, systemPrompt, userPro
 			lastErr = fmt.Errorf("gemini model %s not found (404), trying next top model", mod)
 			continue
 		}
+		if resp.StatusCode == http.StatusServiceUnavailable {
+			lastErr = fmt.Errorf("gemini model %s temporarily unavailable (503): %s", mod, strings.TrimSpace(string(bodyBytes)))
+			continue
+		}
 
 		if resp.StatusCode == http.StatusTooManyRequests {
 			g.rotator.MarkRateLimited(key, 60*time.Second)
-			return "", fmt.Errorf("gemini rate limit 429")
+			if remainingKeyAttempts > 1 {
+				text, retryErr := g.generateText(ctx, systemPrompt, userPrompt, remainingKeyAttempts-1)
+				if retryErr != nil {
+					return "", fmt.Errorf("Gemini rate limit across configured keys: %w", retryErr)
+				}
+				return text, nil
+			}
+			return "", fmt.Errorf("gemini rate limit 429: %s", strings.TrimSpace(string(bodyBytes)))
 		}
 
 		if resp.StatusCode >= 400 {
@@ -228,13 +245,19 @@ func (g *GeminiProvider) GenerateText(ctx context.Context, systemPrompt, userPro
 	}
 
 	if lastErr != nil {
-		g.rotator.MarkError(key)
+		if markKeyError {
+			g.rotator.MarkError(key)
+		}
 		return "", lastErr
 	}
 	return "", errors.New("empty response from Gemini")
 }
 
 func (g *GeminiProvider) GenerateVision(ctx context.Context, systemPrompt, userPrompt string, imageBytes []byte, mimeType string) (string, error) {
+	return g.generateVision(ctx, systemPrompt, userPrompt, imageBytes, mimeType, g.rotator.KeyCount())
+}
+
+func (g *GeminiProvider) generateVision(ctx context.Context, systemPrompt, userPrompt string, imageBytes []byte, mimeType string, remainingKeyAttempts int) (string, error) {
 	key, err := g.rotator.GetNextKey()
 	if err != nil {
 		return "", err
@@ -246,6 +269,7 @@ func (g *GeminiProvider) GenerateVision(ctx context.Context, systemPrompt, userP
 
 	candidateModels := getGeminiCandidates(g.model)
 	var lastErr error
+	markKeyError := false
 
 	for _, mod := range candidateModels {
 		url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", mod)
@@ -287,6 +311,7 @@ func (g *GeminiProvider) GenerateVision(ctx context.Context, systemPrompt, userP
 		resp, err := g.httpClient.Do(req)
 		if err != nil {
 			lastErr = err
+			markKeyError = true
 			continue
 		}
 
@@ -314,10 +339,21 @@ func (g *GeminiProvider) GenerateVision(ctx context.Context, systemPrompt, userP
 			lastErr = fmt.Errorf("gemini vision model %s not found (404), trying next top model", mod)
 			continue
 		}
+		if resp.StatusCode == http.StatusServiceUnavailable {
+			lastErr = fmt.Errorf("gemini vision model %s temporarily unavailable (503): %s", mod, strings.TrimSpace(string(bodyBytes)))
+			continue
+		}
 
 		if resp.StatusCode == http.StatusTooManyRequests {
 			g.rotator.MarkRateLimited(key, 60*time.Second)
-			return "", fmt.Errorf("gemini vision rate limit 429")
+			if remainingKeyAttempts > 1 {
+				text, retryErr := g.generateVision(ctx, systemPrompt, userPrompt, imageBytes, mimeType, remainingKeyAttempts-1)
+				if retryErr != nil {
+					return "", fmt.Errorf("Gemini vision rate limit across configured keys: %w", retryErr)
+				}
+				return text, nil
+			}
+			return "", fmt.Errorf("gemini vision rate limit 429: %s", strings.TrimSpace(string(bodyBytes)))
 		}
 
 		if resp.StatusCode >= 400 {
@@ -327,7 +363,9 @@ func (g *GeminiProvider) GenerateVision(ctx context.Context, systemPrompt, userP
 	}
 
 	if lastErr != nil {
-		g.rotator.MarkError(key)
+		if markKeyError {
+			g.rotator.MarkError(key)
+		}
 		return "", lastErr
 	}
 	return "", errors.New("empty response from Gemini Vision")
