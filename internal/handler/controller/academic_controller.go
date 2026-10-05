@@ -1,3 +1,4 @@
+// Package controller provides HTTP handlers for managing academic entities such as courses, folders, and notes. It defines the AcademicController struct, which contains methods for creating, retrieving, updating, and deleting these entities. The controller interacts with the AcademicService to perform business logic and uses middleware for authentication and authorization. Responses are standardized using the reuse package for consistent error handling and success messages.
 package controller
 
 import (
