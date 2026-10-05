@@ -8,6 +8,7 @@ import (
 	"goProjectStructure/internal/servers"
 	"goProjectStructure/internal/utils"
 	"goProjectStructure/internal/worker"
+	"strings"
 
 	"go.uber.org/zap"
 )
@@ -16,21 +17,33 @@ func main() {
 	logger := middleware.New()
 	defer logger.Sync()
 
-	cfg := utils.MustLoad()
+	cfg := utils.MustLoadAPI()
 
 	// Connect to PostgreSQL database pool
 	db, err := utils.ConnectDB(cfg.DBURL)
 	if err != nil {
+		if strings.EqualFold(cfg.Env, "production") {
+			logger.Fatal("database connection failed", zap.Error(err))
+		}
 		logger.Warn("database connection failed (running in offline/disconnected mode)", zap.Error(err))
 	} else {
 		defer db.Close()
 
-		// Run automated schema checks and database migrations
-		migration.EnsureSchemaColumns(db)
+		// Apply versioned schema changes before running compatibility checks.
 		if err := migration.RunAutoMigrations(cfg.DBURL); err != nil {
+			if strings.EqualFold(cfg.Env, "production") {
+				logger.Fatal("database migration failed", zap.Error(err))
+			}
 			logger.Warn("auto-migration notice", zap.Error(err))
 		} else {
-			logger.Info("database auto-migrations verified successfully")
+			if err := migration.EnsureSchemaColumns(db); err != nil {
+				if strings.EqualFold(cfg.Env, "production") {
+					logger.Fatal("database schema verification failed", zap.Error(err))
+				}
+				logger.Warn("database schema verification warning", zap.Error(err))
+			} else {
+				logger.Info("database migrations and schema checks verified successfully")
+			}
 		}
 	}
 

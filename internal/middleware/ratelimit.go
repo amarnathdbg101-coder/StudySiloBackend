@@ -16,20 +16,22 @@ type clientRecord struct {
 
 // IPRateLimiter tracks request counts per client IP in memory
 type IPRateLimiter struct {
-	mu          sync.RWMutex
-	records     map[string]*clientRecord
-	limit       int
-	window      time.Duration
-	stopCleanup chan struct{}
+	mu             sync.RWMutex
+	records        map[string]*clientRecord
+	limit          int
+	window         time.Duration
+	stopCleanup    chan struct{}
+	trustedProxies []*net.IPNet
 }
 
 // NewIPRateLimiter creates a new rate limiter with background garbage collection
-func NewIPRateLimiter(limit int, window time.Duration) *IPRateLimiter {
+func NewIPRateLimiter(limit int, window time.Duration, trustedProxyCIDRs ...string) *IPRateLimiter {
 	limiter := &IPRateLimiter{
-		records:     make(map[string]*clientRecord),
-		limit:       limit,
-		window:      window,
-		stopCleanup: make(chan struct{}),
+		records:        make(map[string]*clientRecord),
+		limit:          limit,
+		window:         window,
+		stopCleanup:    make(chan struct{}),
+		trustedProxies: parseTrustedProxyCIDRs(trustedProxyCIDRs),
 	}
 
 	go func() {
@@ -47,6 +49,41 @@ func NewIPRateLimiter(limit int, window time.Duration) *IPRateLimiter {
 	}()
 
 	return limiter
+}
+
+func parseTrustedProxyCIDRs(values []string) []*net.IPNet {
+	networks := make([]*net.IPNet, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+
+		if ip := net.ParseIP(value); ip != nil {
+			bits := 128
+			if ip4 := ip.To4(); ip4 != nil {
+				ip = ip4
+				bits = 32
+			}
+			networks = append(networks, &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
+			continue
+		}
+
+		_, network, err := net.ParseCIDR(value)
+		if err == nil {
+			networks = append(networks, network)
+		}
+	}
+	return networks
+}
+
+func (l *IPRateLimiter) isTrustedProxy(ip net.IP) bool {
+	for _, network := range l.trustedProxies {
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func (l *IPRateLimiter) cleanup() {
@@ -105,30 +142,52 @@ func (l *IPRateLimiter) CheckAndAllow(ip string) (allowed bool, remaining int, r
 
 // ExtractIP extracts the client IP address from request headers or remote addr
 func ExtractIP(r *http.Request) string {
-	if cfIP := r.Header.Get("CF-Connecting-IP"); cfIP != "" {
-		return strings.TrimSpace(cfIP)
-	}
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.Split(xff, ",")
-		if len(parts) > 0 && strings.TrimSpace(parts[0]) != "" {
-			return strings.TrimSpace(parts[0])
-		}
-	}
-	if xrip := r.Header.Get("X-Real-IP"); xrip != "" {
-		return strings.TrimSpace(xrip)
-	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err == nil {
+		if ip := net.ParseIP(host); ip != nil {
+			return ip.String()
+		}
 		return host
 	}
+	if ip := net.ParseIP(r.RemoteAddr); ip != nil {
+		return ip.String()
+	}
 	return r.RemoteAddr
+}
+
+func (l *IPRateLimiter) clientIP(r *http.Request) string {
+	remoteIP := ExtractIP(r)
+	parsedRemoteIP := net.ParseIP(remoteIP)
+	if parsedRemoteIP == nil || !l.isTrustedProxy(parsedRemoteIP) {
+		return remoteIP
+	}
+
+	if forwardedIP := net.ParseIP(strings.TrimSpace(r.Header.Get("CF-Connecting-IP"))); forwardedIP != nil {
+		return forwardedIP.String()
+	}
+
+	forwarded := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+	for index := len(forwarded) - 1; index >= 0; index-- {
+		ip := net.ParseIP(strings.TrimSpace(forwarded[index]))
+		if ip == nil {
+			continue
+		}
+		if !l.isTrustedProxy(ip) {
+			return ip.String()
+		}
+	}
+
+	if forwardedIP := net.ParseIP(strings.TrimSpace(r.Header.Get("X-Real-IP"))); forwardedIP != nil {
+		return forwardedIP.String()
+	}
+	return remoteIP
 }
 
 // Middleware returns a Chi middleware handler function
 func (l *IPRateLimiter) Middleware() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := ExtractIP(r)
+			ip := l.clientIP(r)
 			allowed, remaining, resetInSec := l.CheckAndAllow(ip)
 
 			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(l.limit))

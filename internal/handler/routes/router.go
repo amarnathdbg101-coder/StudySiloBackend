@@ -30,7 +30,7 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 	r.Use(middleware.SecurityHeaders)
 	r.Use(middleware.Logger)
 	r.Use(middleware.CORS)
-	limiter := middleware.NewIPRateLimiter(100, time.Minute)
+	limiter := middleware.NewIPRateLimiter(100, time.Minute, cfg.TrustedProxies...)
 	r.Use(limiter.Middleware())
 
 	// 1. Interactive Swagger Documentation UI

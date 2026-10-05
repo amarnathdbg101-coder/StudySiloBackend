@@ -1,3 +1,4 @@
+// Package utils provides utility functions for handling database transactions. It includes the WithTx function, which executes a given function within a database transaction context. The function ensures that the transaction is properly committed or rolled back based on the success or failure of the executed function, as well as handling any panics that may occur during execution.
 package utils
 
 import (

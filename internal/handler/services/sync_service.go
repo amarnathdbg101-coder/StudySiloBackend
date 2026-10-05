@@ -1,3 +1,4 @@
+// Package services provides the implementation of the SyncService interface, which is responsible for handling synchronization operations between the client and server. It interacts with the SyncRepository to fetch the delta of changes since a specified timestamp for a given user. The service returns a structured response containing the updated courses, folders, notes, and quizzes along with the timestamp of synchronization.
 package services
 
 import (

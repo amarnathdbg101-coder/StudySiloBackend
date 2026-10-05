@@ -150,24 +150,21 @@ func (s *aiTutorService) SolveDoubt(ctx context.Context, userID string, req dto.
 		return nil, fmt.Errorf("AI service error: %w", err)
 	}
 
-	// Extract core concept & pitfalls if present, or assign smart defaults
+	// Extract structured study sections only when the answer actually contains them.
 	coreConcept := extractSection(answerText, "Foundation")
 	if coreConcept == "" {
 		coreConcept = extractSection(answerText, "Core Concept")
-	}
-	if coreConcept == "" {
-		coreConcept = "Conceptual Analysis"
 	}
 	commonPitfalls := extractSection(answerText, "Common Misconceptions")
 	if commonPitfalls == "" {
 		commonPitfalls = extractSection(answerText, "Common Pitfalls")
 	}
-	if commonPitfalls == "" {
-		commonPitfalls = "Verify units and boundary conditions."
-	}
 
 	// Generate smart follow-up chips
-	followUpChips := generateFollowUpChips(req.Question, answerText)
+	followUpChips := []string{}
+	if !strings.Contains(analyzeQuerySituation(req.Question, req.ContextNotes), "SITUATION: CONVERSATIONAL") {
+		followUpChips = generateFollowUpChips(req.Question, answerText)
+	}
 
 	resp := &dto.DoubtResponse{
 		Question:         req.Question,
@@ -354,9 +351,10 @@ func analyzeQuerySituation(userMessage, contextNotes string) string {
 - Keep it friendly, short, and to the point.`, levelDirective)
 	}
 
-	isQuickFormula := (strings.Contains(query, "formula") || strings.Contains(query, "si unit") || strings.Contains(query, "dimension") || strings.Contains(query, "value of") || strings.Contains(query, "unit of") || strings.Contains(query, "constant of")) && wordCount <= 9
-	isShortDef := (strings.HasPrefix(query, "what is") || strings.HasPrefix(query, "define") || strings.HasPrefix(query, "kya hai") || strings.HasPrefix(query, "meaning of") || strings.HasPrefix(query, "state") || strings.HasPrefix(query, "who is") || strings.HasPrefix(query, "name the")) && wordCount <= 7
-	isVerification := (strings.HasPrefix(query, "is ") || strings.HasPrefix(query, "can ") || strings.HasPrefix(query, "does ") || strings.Contains(query, "true or false") || strings.Contains(query, "sahi hai kya") || strings.Contains(query, "galat hai kya") || strings.Contains(query, "correct or not")) && wordCount <= 10
+	isDeepConcept := strings.Contains(query, "explain in detail") || strings.Contains(query, "in depth") || strings.Contains(query, "deep") || strings.Contains(query, "comprehensive") || strings.Contains(query, "compare") || strings.Contains(query, "difference between") || strings.Contains(query, "working of") || strings.Contains(query, "mechanism of") || strings.Contains(query, "architecture")
+	isQuickFormula := !isDeepConcept && (strings.Contains(query, "formula") || strings.Contains(query, "si unit") || strings.Contains(query, "dimension") || strings.Contains(query, "value of") || strings.Contains(query, "unit of") || strings.Contains(query, "constant of")) && wordCount <= 9
+	isShortDef := !isDeepConcept && (strings.HasPrefix(query, "what is") || strings.HasPrefix(query, "define") || strings.HasPrefix(query, "kya hai") || strings.HasPrefix(query, "meaning of") || strings.HasPrefix(query, "state") || strings.HasPrefix(query, "who is") || strings.HasPrefix(query, "name the")) && wordCount <= 7
+	isVerification := !isDeepConcept && (strings.HasPrefix(query, "is ") || strings.HasPrefix(query, "can ") || strings.HasPrefix(query, "does ") || strings.Contains(query, "true or false") || strings.Contains(query, "sahi hai kya") || strings.Contains(query, "galat hai kya") || strings.Contains(query, "correct or not")) && wordCount <= 10
 
 	if isQuickFormula || isShortDef || isVerification {
 		return fmt.Sprintf(`%s
@@ -379,7 +377,7 @@ func analyzeQuerySituation(userMessage, contextNotes string) string {
 	}
 
 	isFollowUp := strings.HasPrefix(query, "aur") || strings.HasPrefix(query, "then") || strings.HasPrefix(query, "why") || strings.HasPrefix(query, "kyu") || strings.HasPrefix(query, "kyun") || strings.HasPrefix(query, "repeat") || strings.HasPrefix(query, "example do") || strings.HasPrefix(query, "short me") || strings.HasPrefix(query, "hindi me") || (wordCount <= 4 && !isShortDef)
-	if isFollowUp {
+	if isFollowUp && !isDeepConcept {
 		return fmt.Sprintf(`%s
 🔄 SITUATION: CONTEXTUAL FOLLOW-UP / SPECIFIC CLARIFICATION
 - Directly address the specific clarification or doubt based on prior context.
@@ -387,35 +385,21 @@ func analyzeQuerySituation(userMessage, contextNotes string) string {
 - COMPLETE EXPLANATION MANDATE: Finish all examples, steps, or workings completely without stopping.`, levelDirective)
 	}
 
-	isDeepConcept := strings.Contains(query, "explain in detail") || strings.Contains(query, "deep") || strings.Contains(query, "comprehensive") || strings.Contains(query, "compare") || strings.Contains(query, "difference between") || strings.Contains(query, "working of") || strings.Contains(query, "mechanism of") || strings.Contains(query, "architecture") || wordCount > 18
 	if isDeepConcept {
 		return fmt.Sprintf(`%s
-🌟 SITUATION: LONG QUESTION / DEEP CONCEPTUAL UNDERSTANDING
-- The question demands depth. Provide a comprehensive explanation strictly proportional to the question.
-- TOKEN LIMIT: Maximum 8192 tokens (8k). NEVER truncate mid-sentence.
-- Structure simply using normal headings and write answers directly underneath:
-  ### Foundation
-  ### Deep Explanation
-  ### 💡 Exam Tips & High-Yield Points
-  ### ⚠️ Common Misconceptions & Traps
-  ### 🔗 Related Concepts
-  ### 📌 Key Takeaways
+🌟 SITUATION: IN-DEPTH CONCEPTUAL REQUEST
+- The student explicitly asks for depth or comparison. Explain the reasoning and useful details fully, without padding.
+- Choose a clear format that suits this question; use headings, examples, equations, or bullets only when they help.
 - Use LaTeX for equations ($$ ... $$ standalone, $ ... $ inline).
-- Avoid introductory fluff. Make every section dense with understanding.`, levelDirective)
+- Finish the requested explanation and conclusion.`, levelDirective)
 	}
 
 	return fmt.Sprintf(`%s
 🎯 SITUATION: NATURAL QUESTION-PROPORTIONATE ANSWER
-- Scale answer length strictly to match the question depth.
-- For conceptual questions, structure with normal headings:
-  ### Foundation
-  ### Deep Explanation
-  ### 💡 Exam Tips & High-Yield Points
-  ### ⚠️ Common Misconceptions & Traps
-  ### 🔗 Related Concepts
-  ### 📌 Key Takeaways
-- Short question -> short, direct, focused answer (no filler headings).
-- COMPLETE RESPONSE MANDATE: Fully complete all points and conclusions without cutting off mid-sentence.`, levelDirective)
+- Answer the actual question directly and scale length to its intent, not merely its word count.
+- For general or conversational questions, respond naturally; do not turn them into a lesson or add academic sections.
+- For academic questions, explain only the concepts and context that help answer this question. Use headings or lists only when useful.
+- COMPLETE RESPONSE MANDATE: Finish the requested answer without adding unrelated sections or padding.`, levelDirective)
 }
 
 func buildTutorPrompt(mode, question, contextNotes, targetExam, academicLevel string, weakTopics []string) string {
@@ -474,30 +458,19 @@ CRITICAL RULES FOR ACCURATE & RELIABLE VISUALS:
 `
 
 	const globalFormattingDirectives = `
-MASTER PEDAGOGICAL & COMMUNICATION DIRECTIVES:
-1. EXAM & GRADE LEVEL CALIBRATION (STRICTEST DIRECTIVE):
+COMMUNICATION PRIORITIES (OVERRIDE GENERIC PERSONA TEMPLATES WHEN THEY CONFLICT):
+1. FOLLOW THE USER'S REQUEST:
+	- Respect explicit requests for a short answer, a detailed explanation, a language, tone, or output format.
+	- If no depth is specified, infer the useful amount from the question; a long sentence alone does not mean the user wants a long answer.
+	- Do not force a fixed set of headings, exam tips, pitfalls, summaries, or follow-up questions. Include them only when requested or genuinely useful.
+	- For everyday, general-knowledge, and conversational questions, answer naturally, not like an exam worksheet.
+	- For academic questions, teach clearly and accurately while keeping the response focused on what was asked.
+
+2. EXAM & GRADE LEVEL CALIBRATION:
    - Adapt depth, vocabulary, and formulas strictly to the student's preparation level.
    - If Class 9-10 / School level: Explain strictly within the 9th/10th grade school syllabus. Aisa bilkul na ho ki student 10th ka ho aur answer graduation/college level ka de do! DO NOT use university multivariable calculus, differential equations, advanced vectors, or graduate-level proofs.
    - If Class 11-12 / JEE / NEET: Use senior secondary entrance depth.
    - If College / B.Tech / University: Use full graduation-level rigor.
-
-2. PROPORTIONATE ANSWER LENGTH & MAXIMUM 8K TOKENS:
-   - Token Limit is set to 8192 tokens (8k tokens). Provide deep, detailed, and rich explanations for academic queries without artificial truncation.
-   - Short questions (simple formula, SI unit, 1-line definition lookup) -> Short, direct answer (2-4 lines) with an optional quick tip/trap, without multi-step headings.
-   - Conversational / app capability questions (e.g. "Tum kya PDF generate kar sakte ho?", "Hi", "Kaun ho") -> Direct, warm, conversational response.
-   - Long / conceptual questions -> Comprehensive, deep masterclass under the 6 standard headings:
-     ### Foundation
-     [Explain foundational concept, core definition, and intuition directly underneath at the student's grade level]
-     ### Deep Explanation
-     [Explain deep mechanism, equations in LaTeX, and detailed working directly underneath at the student's grade level]
-     ### 💡 Exam Tips & High-Yield Points
-     [Scoring keywords, typical exam question formats, and marks-maximizing tips]
-     ### ⚠️ Common Misconceptions & Traps
-     ["❌ Common Mistake vs ✅ Correct Concept", sign/unit traps, and tricky examiner edge cases]
-     ### 🔗 Related Concepts
-     [2-3 interconnected topics or formulas from syllabus to revise alongside]
-     ### 📌 Key Takeaways
-     [2-3 crisp, memorable summary bullet points for quick revision]
 
 3. MATHEMATICAL & SCIENTIFIC RIGOR:
    - Use LaTeX: $$ ... $$ for standalone formulas, and $ ... $ for inline variables only.
@@ -663,47 +636,18 @@ LANGUAGE: Methodical, precise, zero ambiguity. Hinglish or English. Every step M
 ` + globalFormattingDirectives
 
 	default: // academic
-		return `PERSONA: 🎓 Academic Professor & Master AI Study Mentor.
-MISSION: Provide clear, authoritative, and direct explanations enriched with high-yield exam insights, misconceptions, and related concepts in a natural, simple chatbot conversational format.
+		return `PERSONA: Academic Tutor.
+MISSION: Give clear, accurate, natural answers that help the student with the question they actually asked.
 
-TOKEN CAPACITY & DEPTH (8K TOKENS):
-- Maximum Output Tokens: 8192 (8k tokens). Never summarize prematurely. Provide thorough academic depth for student mastery.
-
-CONCEPTUAL EXPLANATION FORMAT:
-When explaining a concept or answering an in-depth question, structure the response simply with normal markdown headings (no section boxes, phase dividers, or artificial structures):
-
-### Foundation
-Describe the foundational basics of the concept directly below:
-- What is this concept and why does it exist?
-- Clear technical definition and core intuition (bold key terms) calibrated to the student's grade level.
-
-### Deep Explanation
-Describe the in-depth knowledge directly below:
-- Step-by-step mechanism and underlying reasoning.
-- Governing formulas / equations in LaTeX with variables defined.
-- Practical application or real-world example.
-
-### 💡 Exam Tips & High-Yield Points
-Provide strategic exam intelligence:
-- Frequently asked question types (e.g. 1-mark objective, 3-mark short answer, or 5-mark derivation/numerical).
-- Scoring keywords examiners look for to award full marks.
-- Presentation tip (e.g. diagram requirement, formula box, or units).
-
-### ⚠️ Common Misconceptions & Traps
-Highlight the exact traps where students lose marks:
-- "❌ Common Mistake vs ✅ Correct Concept" comparison.
-- Sign errors, unit conversion slips, or conditions where formula does NOT apply.
-
-### 🔗 Related Concepts
-- 2-3 closely interconnected syllabus topics or formulas to revise alongside for full mastery.
-
-### 📌 Key Takeaways
-- 2-3 crisp, memorable summary bullet points for quick revision.
+RESPONSE STYLE:
+- Follow the user's requested length and format. If unspecified, be concise by default and expand when the question needs explanation.
+- Answer general or conversational questions directly without academic headings or exam-focused extras.
+- For substantial academic explanations, organize the answer in the clearest format for that topic; headings, examples, formulas, and exam tips are optional, not a checklist.
+- Calibrate terminology and rigor to the student's stated level.
 
 IMPORTANT RULES:
-- Keep the response simple, clean, and conversational — exactly like a natural, top-tier AI study chatbot.
-- Use normal markdown headings (### Foundation, ### Deep Explanation, ### 💡 Exam Tips & High-Yield Points, ### ⚠️ Common Misconceptions & Traps, ### 🔗 Related Concepts, ### 📌 Key Takeaways) and write the answer directly underneath.
-- For short, quick queries (e.g. formula, SI unit, or 1-line definition lookup), answer directly in 2-4 lines with an optional quick tip/trap, without needing full headings.
+- Keep the response natural and focused; use headings and exam tips only when they help answer the request.
+- Follow explicit requests for brevity or detail.
 - Calibrate the depth strictly to the student's target exam & grade level.
 
 DIAGRAM DIRECTIVE:
@@ -799,10 +743,10 @@ func generateFollowUpChips(question, answerText string) []string {
 			chips = append(chips, "📊 In dono ke main differences ki table banao")
 		} else {
 			chips = append(chips, "💡 Ek real-life everyday example dekar samjhao")
-			chips = append(chips, "🎯 Exam me is concept se 5-mark question kya aayega?")
+			chips = append(chips, "🎯 Is topic ka ek practical use batao")
 		}
-		chips = append(chips, "⚠️ Students isme sabse badi kya galti karte hain?")
-		chips = append(chips, "📝 3-bullet points me instant revision notes do")
+		chips = append(chips, "⚠️ Isme common galtiyan kya ho sakti hain?")
+		chips = append(chips, "📝 Iska 3-point summary do")
 	} else {
 		if hasMath {
 			chips = append(chips, "📐 Step-by-step mathematical derivation & proof")
@@ -810,19 +754,19 @@ func generateFollowUpChips(question, answerText string) []string {
 			chips = append(chips, "📏 What are the SI units & boundary conditions?")
 		} else if hasComparison {
 			chips = append(chips, "📊 Detailed comparison matrix & trade-offs")
-			chips = append(chips, "🎯 Which one is frequently tested in exams?")
+			chips = append(chips, "🎯 When is each option more useful?")
 		} else if hasCode {
 			chips = append(chips, "💻 Show an end-to-end code example with comments")
 			chips = append(chips, "⚡ What is the time & space complexity analysis?")
 		} else if hasMechanism {
 			chips = append(chips, "💡 Explain with a vivid real-world analogy")
-			chips = append(chips, "🎯 Top 5-mark university exam question on this")
+			chips = append(chips, "🎯 Give me a real-world example of this")
 		} else {
-			chips = append(chips, "💡 Explain simpler like I am 5 (ELI5)")
+			chips = append(chips, "💡 Can you explain this more simply?")
 			chips = append(chips, "🎯 Test my understanding with a quick question")
 		}
-		chips = append(chips, "⚠️ Common student traps & scoring pitfalls")
-		chips = append(chips, "📝 High-yield 3-bullet revision summary")
+		chips = append(chips, "⚠️ What should I watch out for?")
+		chips = append(chips, "📝 Summarize this in 3 bullets")
 	}
 
 	// De-duplicate and return top 4 chips

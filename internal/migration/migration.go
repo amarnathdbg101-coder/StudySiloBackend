@@ -26,7 +26,11 @@ func RunAutoMigrations(dbURL string) error {
 }
 
 // EnsureSchemaColumns runs fast idempotent ALTER statements to ensure critical columns/extensions exist
-func EnsureSchemaColumns(pool *pgxpool.Pool) {
+func EnsureSchemaColumns(pool *pgxpool.Pool) error {
+	if pool == nil {
+		return fmt.Errorf("database pool is required")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -43,7 +47,10 @@ func EnsureSchemaColumns(pool *pgxpool.Pool) {
 		`CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_updated ON chat_sessions(user_id, updated_at DESC);`,
 	}
 
-	for _, q := range queries {
-		_, _ = pool.Exec(ctx, q)
+	for index, q := range queries {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			return fmt.Errorf("ensure schema statement %d: %w", index+1, err)
+		}
 	}
+	return nil
 }

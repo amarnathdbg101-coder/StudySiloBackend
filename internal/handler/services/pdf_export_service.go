@@ -56,7 +56,7 @@ func (s *pdfExportService) ExportStudyPack(ctx context.Context, userID string, r
 	pdf.SetHeaderFunc(func() {
 		pdf.SetFont("Arial", "I", 8)
 		pdf.SetTextColor(120, 120, 120)
-		pdf.CellFormat(0, 5, "StudySilo.in | AI-Powered Personalized Study Guide", "", 0, "L", false, 0, "")
+		pdf.CellFormat(0, 5, "StudySilo | AI-Powered Personalized Study Guide", "", 0, "L", false, 0, "")
 		pdf.Ln(8)
 	})
 

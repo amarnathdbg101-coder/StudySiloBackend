@@ -100,6 +100,40 @@ func TestAITutorService_SolveDoubt(t *testing.T) {
 	if strings.Contains(csResp.SolutionMarkdown, `\lim_{\Delta t \to 0}`) {
 		t.Errorf("CS architecture solution should NOT contain velocity derivative formula!")
 	}
+
+	greetingResp, err := tutor.SolveDoubt(ctx, "user-1", dto.DoubtRequest{Question: "Hi", ScopeType: "global"})
+	if err != nil {
+		t.Fatalf("unexpected error answering greeting: %v", err)
+	}
+	if greetingResp.CoreConcept != "" || greetingResp.CommonPitfalls != "" {
+		t.Errorf("greeting should not receive fabricated study sections: core=%q pitfalls=%q", greetingResp.CoreConcept, greetingResp.CommonPitfalls)
+	}
+	if len(greetingResp.FollowUpChips) != 0 {
+		t.Errorf("greeting should not receive academic follow-up chips: %v", greetingResp.FollowUpChips)
+	}
+}
+
+func TestBuildTutorPromptAdaptsToRequestedDepth(t *testing.T) {
+	shortPrompt := buildTutorPrompt("", "What is photosynthesis?", "", "", "", nil)
+	if !strings.Contains(shortPrompt, "a long sentence alone does not mean the user wants a long answer") {
+		t.Fatal("expected default prompt to avoid inferring depth from question length")
+	}
+	if strings.Contains(shortPrompt, "### Foundation") {
+		t.Fatal("expected default prompt not to require fixed academic headings")
+	}
+
+	deepPrompt := buildTutorPrompt("", "What is photosynthesis? Explain in detail", "", "", "", nil)
+	if !strings.Contains(deepPrompt, "IN-DEPTH CONCEPTUAL REQUEST") {
+		t.Fatal("expected explicit detail request to receive in-depth guidance")
+	}
+	if !strings.Contains(deepPrompt, "use headings, examples, equations, or bullets only when they help") {
+		t.Fatal("expected in-depth response format to remain flexible")
+	}
+
+	generalPrompt := buildTutorPrompt("", "Can you tell me a fun fact about the moon?", "", "", "", nil)
+	if !strings.Contains(generalPrompt, "answer naturally, not like an exam worksheet") {
+		t.Fatal("expected general questions to use natural conversational guidance")
+	}
 }
 
 func TestNotesAnalyzerService_Analyze(t *testing.T) {

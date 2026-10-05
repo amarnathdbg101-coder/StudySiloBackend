@@ -45,7 +45,7 @@ services:
       - DATABASE_URL=postgres://postgres:password@postgres:5432/appdb?sslmode=disable
       - JWT_SECRET=hackathon-super-secret-key-change-in-production
       - JWT_EXPIRATION_HOURS=72
-      - CORS_ALLOWED_ORIGINS=*
+      - ALLOWED_ORIGINS=*
     depends_on:
       postgres:
         condition: service_healthy

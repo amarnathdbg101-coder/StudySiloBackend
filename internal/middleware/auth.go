@@ -1,4 +1,4 @@
-//Package middleware provides JWT authentication middleware for HTTP handlers.
+// Package middleware provides JWT authentication middleware for HTTP handlers.
 package middleware
 
 import (
@@ -26,15 +26,6 @@ func JWTAuth(secret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				tokenStr := r.URL.Query().Get("token")
-				if tokenStr == "" {
-					tokenStr = r.URL.Query().Get("access_token")
-				}
-				if tokenStr != "" {
-					authHeader = "Bearer " + tokenStr
-				}
-			}
 
 			if authHeader == "" {
 				http.Error(w, `{"success":false,"error":"missing authorization header"}`, http.StatusUnauthorized)
@@ -83,15 +74,6 @@ func OptionalJWTAuth(secret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				tokenStr := r.URL.Query().Get("token")
-				if tokenStr == "" {
-					tokenStr = r.URL.Query().Get("access_token")
-				}
-				if tokenStr != "" {
-					authHeader = "Bearer " + tokenStr
-				}
-			}
 
 			if authHeader == "" {
 				next.ServeHTTP(w, r)
@@ -123,4 +105,4 @@ func OptionalJWTAuth(secret string) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
-}
+}

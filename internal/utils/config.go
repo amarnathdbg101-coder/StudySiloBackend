@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -15,6 +16,7 @@ type Config struct {
 	DBURL          string
 	JwtSecret      string
 	AllowedOrigins string
+	TrustedProxies []string
 	Bucket         string
 	AccessKey      string
 	SecretKey      string
@@ -44,6 +46,31 @@ func parseCommaList(raw string) []string {
 	return parts
 }
 
+func validateProductionConfig(env, dbURL, jwtSecret, allowedOrigins string) error {
+	if !strings.EqualFold(strings.TrimSpace(env), "production") {
+		return nil
+	}
+
+	if strings.TrimSpace(dbURL) == "" {
+		return fmt.Errorf("DATABASE_URL is required when ENV=production")
+	}
+	if len(strings.TrimSpace(jwtSecret)) < 32 || strings.TrimSpace(jwtSecret) == "default-dev-secret-key-change-in-production-32chars" {
+		return fmt.Errorf("JWT_SECRET must be a non-default secret of at least 32 characters when ENV=production")
+	}
+
+	origins := parseCommaList(allowedOrigins)
+	if len(origins) == 0 {
+		return fmt.Errorf("ALLOWED_ORIGINS must include at least one explicit origin when ENV=production")
+	}
+	for _, origin := range origins {
+		if origin == "*" {
+			return fmt.Errorf("ALLOWED_ORIGINS cannot contain * when ENV=production")
+		}
+	}
+
+	return nil
+}
+
 // MustLoad loads environment variables from .env or environment with safe production defaults
 func MustLoad() Config {
 	configOnce.Do(func() {
@@ -61,18 +88,19 @@ func MustLoad() Config {
 		}
 
 		dbURL := os.Getenv("DATABASE_URL")
+		jwtSecret := os.Getenv("JWT_SECRET")
+		allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
+
 		if dbURL == "" {
 			log.Println("WARNING: DATABASE_URL not set in environment or .env. Using fallback local connection.")
 			dbURL = "postgres://postgres:postgres@localhost:5432/myproject?sslmode=disable"
 		}
 
-		jwtSecret := os.Getenv("JWT_SECRET")
 		if jwtSecret == "" {
 			log.Println("WARNING: JWT_SECRET not set. Using default development secret.")
 			jwtSecret = "default-dev-secret-key-change-in-production-32chars"
 		}
 
-		allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
 		if allowedOrigins == "" {
 			allowedOrigins = "*"
 		}
@@ -83,6 +111,7 @@ func MustLoad() Config {
 			DBURL:          dbURL,
 			JwtSecret:      jwtSecret,
 			AllowedOrigins: allowedOrigins,
+			TrustedProxies: parseCommaList(os.Getenv("TRUSTED_PROXIES")),
 			Bucket:         os.Getenv("R2_BUCKET"),
 			AccessKey:      os.Getenv("R2_ACCESS_KEY"),
 			SecretKey:      os.Getenv("R2_SECRET_KEY"),
@@ -95,6 +124,15 @@ func MustLoad() Config {
 	})
 
 	return cachedConfig
+}
+
+// MustLoadAPI applies web-server-specific production requirements after loading shared configuration.
+func MustLoadAPI() Config {
+	cfg := MustLoad()
+	if err := validateProductionConfig(cfg.Env, os.Getenv("DATABASE_URL"), os.Getenv("JWT_SECRET"), os.Getenv("ALLOWED_ORIGINS")); err != nil {
+		log.Fatal(err)
+	}
+	return cfg
 }
 
 func getEnvFallback(primary, fallback string) string {

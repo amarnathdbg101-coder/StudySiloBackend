@@ -29,7 +29,7 @@ func (c *HealthController) Check(w http.ResponseWriter, r *http.Request) {
 	if c.db == nil {
 		dbStatus = "disconnected (offline mode)"
 	} else if err := c.db.Ping(ctx); err != nil {
-		dbStatus = "unreachable: " + err.Error()
+		dbStatus = "unreachable"
 	}
 
 	reuse.Success(w, "Server is operational", map[string]interface{}{

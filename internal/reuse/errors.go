@@ -27,6 +27,12 @@ func Created(w http.ResponseWriter, msg string, data interface{}) {
 }
 
 func Error(w http.ResponseWriter, status int, err string) {
+	if status >= http.StatusInternalServerError {
+		err = http.StatusText(status)
+		if err == "" {
+			err = "Internal Server Error"
+		}
+	}
 	JSON(w, status, Response{Success: false, Error: err})
 }
 
