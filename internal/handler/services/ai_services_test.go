@@ -11,7 +11,8 @@ import (
 )
 
 type mockChatRepo struct {
-	messages []*model.ChatMessage
+	messages                []*model.ChatMessage
+	listSessionMessagesCall int
 }
 
 func (m *mockChatRepo) SaveMessage(ctx context.Context, msg *model.ChatMessage) error {
@@ -50,13 +51,14 @@ func (m *mockChatRepo) DeleteSession(ctx context.Context, userID, sessionID stri
 }
 
 func (m *mockChatRepo) ListSessionMessages(ctx context.Context, userID, sessionID string, limit int) ([]*model.ChatMessage, error) {
+	m.listSessionMessagesCall++
 	return m.messages, nil
 }
 
 func TestAITutorService_SolveDoubt(t *testing.T) {
 	orch := ai.NewOrchestrator([]string{}, []string{}, []string{})
 	chatRepo := &mockChatRepo{}
-	tutor := NewAITutorService(orch, chatRepo, nil)
+	tutor := NewAITutorService(orch, chatRepo)
 
 	ctx := context.Background()
 	req := dto.DoubtRequest{
@@ -82,6 +84,18 @@ func TestAITutorService_SolveDoubt(t *testing.T) {
 	// Verify chat message persisted
 	if len(chatRepo.messages) != 2 {
 		t.Fatalf("expected 2 chat messages saved (user and assistant), got %d", len(chatRepo.messages))
+	}
+
+	_, err = tutor.SolveDoubt(ctx, "user-1", dto.DoubtRequest{
+		Question:  "Explain this question in a different way.",
+		ScopeType: "chat",
+		SessionID: "session-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error solving session doubt: %v", err)
+	}
+	if chatRepo.listSessionMessagesCall != 0 {
+		t.Errorf("expected session answers not to load stored messages, got %d history reads", chatRepo.listSessionMessagesCall)
 	}
 
 	// Verify computer architecture doubt receives accurate CS architecture explanation
@@ -114,7 +128,7 @@ func TestAITutorService_SolveDoubt(t *testing.T) {
 }
 
 func TestBuildTutorPromptAdaptsToRequestedDepth(t *testing.T) {
-	shortPrompt := buildTutorPrompt("", "What is photosynthesis?", "", "", "", nil)
+	shortPrompt := buildTutorPrompt("", "What is photosynthesis?", "")
 	if !strings.Contains(shortPrompt, "a long sentence alone does not mean the user wants a long answer") {
 		t.Fatal("expected default prompt to avoid inferring depth from question length")
 	}
@@ -122,7 +136,7 @@ func TestBuildTutorPromptAdaptsToRequestedDepth(t *testing.T) {
 		t.Fatal("expected default prompt not to require fixed academic headings")
 	}
 
-	deepPrompt := buildTutorPrompt("", "What is photosynthesis? Explain in detail", "", "", "", nil)
+	deepPrompt := buildTutorPrompt("", "What is photosynthesis? Explain in detail", "")
 	if !strings.Contains(deepPrompt, "IN-DEPTH CONCEPTUAL REQUEST") {
 		t.Fatal("expected explicit detail request to receive in-depth guidance")
 	}
@@ -130,7 +144,7 @@ func TestBuildTutorPromptAdaptsToRequestedDepth(t *testing.T) {
 		t.Fatal("expected in-depth response format to remain flexible")
 	}
 
-	generalPrompt := buildTutorPrompt("", "Can you tell me a fun fact about the moon?", "", "", "", nil)
+	generalPrompt := buildTutorPrompt("", "Can you tell me a fun fact about the moon?", "")
 	if !strings.Contains(generalPrompt, "answer naturally, not like an exam worksheet") {
 		t.Fatal("expected general questions to use natural conversational guidance")
 	}

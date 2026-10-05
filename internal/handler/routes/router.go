@@ -55,7 +55,7 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 	// 4. Domain & AI Services
 	aiOrchestrator := ai.NewOrchestrator(cfg.GeminiAPIKeys, cfg.OpenAIAPIKeys, cfg.ClaudeAPIKeys)
 	authService := services.NewAuthService(userRepo)
-	aiTutorService := services.NewAITutorService(aiOrchestrator, chatRepo, cognitiveRepo)
+	aiTutorService := services.NewAITutorService(aiOrchestrator, chatRepo)
 	notesAnalyzerService := services.NewNotesAnalyzerService(aiOrchestrator, nil)
 	diagramService := services.NewDiagramService(aiOrchestrator)
 	quizService := services.NewQuizService(quizRepo, cognitiveRepo, aiOrchestrator)

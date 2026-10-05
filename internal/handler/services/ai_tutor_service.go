@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
-	"time"
 
 	"goProjectStructure/internal/handler/dto"
 	"goProjectStructure/internal/handler/model"
@@ -24,20 +23,17 @@ type AITutorService interface {
 }
 
 type aiTutorService struct {
-	orchestrator  *ai.Orchestrator
-	chatRepo      repository.ChatRepository
-	cognitiveRepo repository.CognitiveRepository
+	orchestrator *ai.Orchestrator
+	chatRepo     repository.ChatRepository
 }
 
 func NewAITutorService(
 	orchestrator *ai.Orchestrator,
 	chatRepo repository.ChatRepository,
-	cognitiveRepo repository.CognitiveRepository,
 ) AITutorService {
 	return &aiTutorService{
-		orchestrator:  orchestrator,
-		chatRepo:      chatRepo,
-		cognitiveRepo: cognitiveRepo,
+		orchestrator: orchestrator,
+		chatRepo:     chatRepo,
 	}
 }
 
@@ -46,57 +42,15 @@ func (s *aiTutorService) SolveDoubt(ctx context.Context, userID string, req dto.
 		return nil, fmt.Errorf("AI service error: orchestrator not initialized")
 	}
 
-	targetExam := req.TargetExam
-	academicLevel := req.AcademicLevel
-	weakTopics := req.WeakTopics
+	systemPrompt := buildTutorPrompt(req.Mode, req.Question, req.ContextNotes)
 
-	// If user is authenticated and cognitive repository is available, blend profile memory
-	if userID != "" && s.cognitiveRepo != nil {
-		if profile, err := s.cognitiveRepo.GetByUserID(ctx, userID); err == nil && profile != nil {
-			if targetExam == "" && profile.TargetExam != "" {
-				targetExam = profile.TargetExam
-			}
-			if academicLevel == "" && profile.AcademicLevel != "" {
-				academicLevel = profile.AcademicLevel
-			}
-			if len(weakTopics) == 0 && len(profile.WeakTopics) > 0 {
-				weakTopics = profile.WeakTopics
-			}
-		}
-	}
-
-	systemPrompt := buildTutorPrompt(req.Mode, req.Question, req.ContextNotes, targetExam, academicLevel, weakTopics)
-
-	// Extract session ID and build multi-turn conversation memory history
+	// Resolve the session for transcript persistence without feeding prior answers to the model.
 	sessionID := req.SessionID
 	if sessionID == "" && (req.ScopeType == "chat" || req.ScopeType == "session") {
 		sessionID = req.ScopeID
 	}
 
-	var historyContext strings.Builder
-	if sessionID != "" && s.chatRepo != nil {
-		historyMsgs, err := s.chatRepo.ListSessionMessages(ctx, userID, sessionID, 10)
-		if err == nil && len(historyMsgs) > 0 {
-			historyContext.WriteString("[MULTI-TURN CONVERSATION HISTORY IN THIS SESSION]:\n")
-			for _, m := range historyMsgs {
-				if m.Role == "user" {
-					historyContext.WriteString(fmt.Sprintf("Student: %s\n", m.Content))
-				} else if m.Role == "assistant" {
-					respBrief := m.Content
-					if len(respBrief) > 350 {
-						respBrief = respBrief[:350] + "..."
-					}
-					historyContext.WriteString(fmt.Sprintf("AI Tutor: %s\n", respBrief))
-				}
-			}
-			historyContext.WriteString("\n")
-		}
-	}
-
 	userQuery := req.Question
-	if historyContext.Len() > 0 {
-		userQuery = fmt.Sprintf("%s[CURRENT STUDENT QUESTION]:\n%s", historyContext.String(), req.Question)
-	}
 	if req.ContextNotes != "" {
 		userQuery = fmt.Sprintf("%s\n\n%s", req.ContextNotes, userQuery)
 	}
@@ -223,14 +177,6 @@ func (s *aiTutorService) SolveDoubt(ctx context.Context, userID string, req dto.
 			Role:      "assistant",
 			Content:   answerText,
 		})
-
-		// Update student's last active timestamp in cognitive memory
-		if s.cognitiveRepo != nil {
-			if profile, err := s.cognitiveRepo.GetByUserID(ctx, userID); err == nil && profile != nil {
-				profile.LastActiveAt = time.Now()
-				_ = s.cognitiveRepo.Upsert(ctx, profile)
-			}
-		}
 	}
 
 	return resp, nil
@@ -402,24 +348,8 @@ func analyzeQuerySituation(userMessage, contextNotes string) string {
 - COMPLETE RESPONSE MANDATE: Finish the requested answer without adding unrelated sections or padding.`, levelDirective)
 }
 
-func buildTutorPrompt(mode, question, contextNotes, targetExam, academicLevel string, weakTopics []string) string {
+func buildTutorPrompt(mode, question, contextNotes string) string {
 	situationInstruction := analyzeQuerySituation(question, contextNotes)
-
-	if targetExam != "" || academicLevel != "" || len(weakTopics) > 0 {
-		var b strings.Builder
-		b.WriteString("\n\n🧠 STUDENT COGNITIVE PROFILE & SYLLABUS CALIBRATION:")
-		if targetExam != "" {
-			b.WriteString(fmt.Sprintf("\n- Target Exam: %s (calibrate syllabus rigor, problem complexity, and standard exam traps for this specific competition/board)", targetExam))
-		}
-		if academicLevel != "" {
-			b.WriteString(fmt.Sprintf("\n- Student Academic Level: %s (ensure explanations, rigor, and terminology match this educational level)", academicLevel))
-		}
-		if len(weakTopics) > 0 {
-			b.WriteString(fmt.Sprintf("\n- Student Known Weak Topics: %s (if this question relates to these areas, give extra intuitive scaffolding, step-by-step clarity, and warn against common errors)", strings.Join(weakTopics, ", ")))
-		}
-		situationInstruction += b.String()
-	}
-
 	return fmt.Sprintf("%s\n\n%s", situationInstruction, getModePrompt(mode))
 }
 
