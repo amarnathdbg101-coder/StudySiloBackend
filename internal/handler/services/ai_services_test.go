@@ -15,6 +15,26 @@ type mockChatRepo struct {
 	listSessionMessagesCall int
 }
 
+type mockAITutorGenerator struct {
+	response          string
+	lastSystemPrompt  string
+	lastUserPrompt    string
+	generateTextCalls int
+}
+
+func (m *mockAITutorGenerator) GenerateTextWithCustomKey(_ context.Context, _, _, _, systemPrompt, userPrompt string) (string, error) {
+	m.generateTextCalls++
+	m.lastSystemPrompt = systemPrompt
+	m.lastUserPrompt = userPrompt
+	return m.response, nil
+}
+
+func (m *mockAITutorGenerator) GenerateVisionWithCustomKey(_ context.Context, _, _, _, systemPrompt, userPrompt string, _ []byte, _ string) (string, error) {
+	m.lastSystemPrompt = systemPrompt
+	m.lastUserPrompt = userPrompt
+	return m.response, nil
+}
+
 func (m *mockChatRepo) SaveMessage(ctx context.Context, msg *model.ChatMessage) error {
 	msg.ID = "msg-1"
 	m.messages = append(m.messages, msg)
@@ -56,9 +76,9 @@ func (m *mockChatRepo) ListSessionMessages(ctx context.Context, userID, sessionI
 }
 
 func TestAITutorService_SolveDoubt(t *testing.T) {
-	orch := ai.NewOrchestrator([]string{}, []string{}, []string{})
+	generator := &mockAITutorGenerator{response: "A fresh explanation for the current question."}
 	chatRepo := &mockChatRepo{}
-	tutor := NewAITutorService(orch, chatRepo)
+	tutor := NewAITutorService(generator, chatRepo)
 
 	ctx := context.Background()
 	req := dto.DoubtRequest{
@@ -74,8 +94,8 @@ func TestAITutorService_SolveDoubt(t *testing.T) {
 	if resp.Question != req.Question {
 		t.Errorf("expected question %q, got %q", req.Question, resp.Question)
 	}
-	if resp.SolutionMarkdown == "" {
-		t.Error("expected non-empty solution markdown")
+	if resp.SolutionMarkdown != generator.response {
+		t.Errorf("expected fresh provider response %q, got %q", generator.response, resp.SolutionMarkdown)
 	}
 	if len(resp.FollowUpChips) == 0 {
 		t.Error("expected follow-up chips")
@@ -84,6 +104,9 @@ func TestAITutorService_SolveDoubt(t *testing.T) {
 	// Verify chat message persisted
 	if len(chatRepo.messages) != 2 {
 		t.Fatalf("expected 2 chat messages saved (user and assistant), got %d", len(chatRepo.messages))
+	}
+	if !strings.Contains(generator.lastUserPrompt, "[CURRENT QUESTION - answer this request]\n"+req.Question) {
+		t.Errorf("expected the exact current question in provider request, got %q", generator.lastUserPrompt)
 	}
 
 	_, err = tutor.SolveDoubt(ctx, "user-1", dto.DoubtRequest{
@@ -98,7 +121,7 @@ func TestAITutorService_SolveDoubt(t *testing.T) {
 		t.Errorf("expected session answers not to load stored messages, got %d history reads", chatRepo.listSessionMessagesCall)
 	}
 
-	// Verify computer architecture doubt receives accurate CS architecture explanation
+	// Reference notes are clearly separated from the current question.
 	csReq := dto.DoubtRequest{
 		Question:     "explain computer architecture",
 		ContextNotes: "[STUDENT COGNITIVE PROFILE]\n• Target Exam: University Semester Exams",
@@ -108,11 +131,14 @@ func TestAITutorService_SolveDoubt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error solving CS doubt: %v", err)
 	}
-	if !strings.Contains(csResp.SolutionMarkdown, "Von Neumann") {
-		t.Errorf("expected CS architecture solution to mention Von Neumann, got: %s", csResp.SolutionMarkdown)
+	if csResp.SolutionMarkdown != generator.response {
+		t.Errorf("expected the provider's fresh response, got: %s", csResp.SolutionMarkdown)
 	}
-	if strings.Contains(csResp.SolutionMarkdown, `\lim_{\Delta t \to 0}`) {
-		t.Errorf("CS architecture solution should NOT contain velocity derivative formula!")
+	if !strings.Contains(generator.lastUserPrompt, "[REFERENCE CONTEXT - use only when relevant") || !strings.Contains(generator.lastUserPrompt, "[CURRENT QUESTION - answer this request]\n"+csReq.Question) {
+		t.Errorf("expected reference context and current question to be labeled separately, got %q", generator.lastUserPrompt)
+	}
+	if !strings.Contains(generator.lastSystemPrompt, "Do not invent facts") {
+		t.Errorf("expected accuracy instructions in provider system prompt")
 	}
 
 	greetingResp, err := tutor.SolveDoubt(ctx, "user-1", dto.DoubtRequest{Question: "Hi", ScopeType: "global"})

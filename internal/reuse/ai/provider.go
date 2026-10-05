@@ -581,33 +581,40 @@ func (o *Orchestrator) GetProviderWithCustomKey(providerName, modelName, customK
 
 func (o *Orchestrator) GenerateTextWithCustomKey(ctx context.Context, customKey, providerName, modelName, systemPrompt, userPrompt string) (string, error) {
 	p := o.GetProviderWithCustomKey(providerName, modelName, customKey)
-	if p != nil {
-		text, err := p.GenerateText(ctx, systemPrompt, userPrompt)
-		if err == nil && text != "" {
-			return text, nil
-		}
-		if customKey != "" && err != nil {
-			return "", fmt.Errorf("AI generation with provided API key failed: %w", err)
-		}
+	if p == nil {
+		return "", fmt.Errorf("AI provider unavailable: no configured API key for %s", providerName)
 	}
 
-	// Dynamic, high-quality academic response fallback if offline or no keys
-	return generateSmartAcademicResponse(userPrompt, providerName, modelName), nil
+	text, err := p.GenerateText(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		if customKey != "" {
+			return "", fmt.Errorf("AI generation with provided API key failed: %w", err)
+		}
+		return "", fmt.Errorf("AI generation failed: %w", err)
+	}
+	if strings.TrimSpace(text) == "" {
+		return "", errors.New("AI provider returned an empty response")
+	}
+	return text, nil
 }
 
 func (o *Orchestrator) GenerateVisionWithCustomKey(ctx context.Context, customKey, providerName, modelName, systemPrompt, userPrompt string, imageBytes []byte, mimeType string) (string, error) {
 	p := o.GetProviderWithCustomKey(providerName, modelName, customKey)
-	if p != nil {
-		text, err := p.GenerateVision(ctx, systemPrompt, userPrompt, imageBytes, mimeType)
-		if err == nil && text != "" {
-			return text, nil
-		}
-		if customKey != "" && err != nil {
-			return "", fmt.Errorf("AI vision with provided API key failed: %w", err)
-		}
+	if p == nil {
+		return "", fmt.Errorf("AI provider unavailable: no configured API key for %s", providerName)
 	}
 
-	return generateSmartVisionResponse(userPrompt, providerName, modelName), nil
+	text, err := p.GenerateVision(ctx, systemPrompt, userPrompt, imageBytes, mimeType)
+	if err != nil {
+		if customKey != "" {
+			return "", fmt.Errorf("AI vision with provided API key failed: %w", err)
+		}
+		return "", fmt.Errorf("AI vision generation failed: %w", err)
+	}
+	if strings.TrimSpace(text) == "" {
+		return "", errors.New("AI provider returned an empty response")
+	}
+	return text, nil
 }
 
 func (o *Orchestrator) GenerateTextWithModel(ctx context.Context, providerName, modelName, systemPrompt, userPrompt string) (string, error) {
@@ -703,7 +710,6 @@ Main aapke academic doubts solve karne, complex concepts ko aasan bhasha me samj
 
 Aap mujhse koi bhi question puch sakte hain — bataiye aaj aap kya padhna chahte hain?`
 	}
-
 
 	// Domain 1: Memory Hierarchy in Computer Architecture (Registers, L1/L2/L3 Caches, Main Memory RAM, Secondary Storage)
 	if strings.Contains(lower, "hierarchy") || strings.Contains(lower, "memory hierarchy") || (strings.Contains(lower, "memory") && (strings.Contains(lower, "level") || strings.Contains(lower, "cache") || strings.Contains(lower, "ram") || strings.Contains(lower, "speed") || strings.Contains(lower, "sram"))) {

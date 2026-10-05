@@ -70,74 +70,23 @@ func TestKeyRotator_EmptyKeys(t *testing.T) {
 	}
 }
 
-func TestOrchestrator_MockFallback(t *testing.T) {
+func TestOrchestrator_RequiresConfiguredProvider(t *testing.T) {
 	orch := NewOrchestrator([]string{}, []string{}, []string{})
 	ctx := context.Background()
 
-	resp, err := orch.GenerateText(ctx, "Explain Newton's First Law", "Concept query")
-	if err != nil {
-		t.Fatalf("expected fallback mock response without error, got %v", err)
+	resp, err := orch.GenerateText(ctx, "You are an AI Tutor", "Explain Newton's First Law")
+	if err == nil || !strings.Contains(err.Error(), "provider unavailable") {
+		t.Fatalf("expected unavailable-provider error, got answer %q and error %v", resp, err)
 	}
-	if resp == "" {
-		t.Fatal("expected non-empty mock response")
-	}
-}
-
-func TestOrchestrator_DistinctResponsesForArchitectureVsMemoryHierarchy(t *testing.T) {
-	orch := NewOrchestrator([]string{}, []string{}, []string{})
-	ctx := context.Background()
-
-	// Query 1: General Computer Architecture
-	resp1, err1 := orch.GenerateText(ctx, "You are an AI Tutor", "Explain computer architecture")
-	if err1 != nil {
-		t.Fatalf("unexpected error on query 1: %v", err1)
+	if resp != "" {
+		t.Fatalf("expected no fabricated response without a provider, got %q", resp)
 	}
 
-	// Query 2: Memory Hierarchy
-	resp2, err2 := orch.GenerateText(ctx, "You are an AI Tutor", "computer architecture ke andar ke hierarchy ko samjhao, memory hierarchy")
-	if err2 != nil {
-		t.Fatalf("unexpected error on query 2: %v", err2)
+	resp, err = orch.GenerateVision(ctx, "You are an AI Tutor", "Solve this image", []byte{1}, "image/jpeg")
+	if err == nil || !strings.Contains(err.Error(), "provider unavailable") {
+		t.Fatalf("expected unavailable-provider error for vision request, got answer %q and error %v", resp, err)
 	}
-
-	if resp1 == resp2 {
-		t.Fatal("expected distinct responses for 'computer architecture' vs 'memory hierarchy', but got identical response!")
-	}
-
-	if !strings.Contains(resp2, "AMAT") && !strings.Contains(resp2, "Average Memory Access Time") {
-		t.Errorf("expected memory hierarchy response to contain AMAT formulation, got: %s", resp2[:min(len(resp2), 200)])
-	}
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func TestOrchestrator_FlexibleConversationalResponse(t *testing.T) {
-	orch := NewOrchestrator([]string{}, []string{}, []string{})
-	ctx := context.Background()
-
-	// Question: "Tum kya PDF generate kar sakte ho?"
-	resp, err := orch.GenerateText(ctx, "You are an AI Tutor", "Tum kya PDF generate kar sakte ho?")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Must directly address PDF export
-	if !strings.Contains(resp, "PDF") && !strings.Contains(resp, "pdf") {
-		t.Errorf("expected response to address PDF capabilities, got: %s", resp)
-	}
-
-	// Must NOT contain artificial Core Problem or SI unit table
-	if strings.Contains(resp, "The Core Problem") {
-		t.Errorf("conversational response should NOT contain 'The Core Problem', got: %s", resp)
-	}
-	if strings.Contains(resp, "Exam Weightage") || strings.Contains(resp, "3-mark conceptual reasoning") {
-		t.Errorf("conversational response should NOT contain exam weightage blueprints, got: %s", resp)
-	}
-	if strings.Contains(resp, "Phi_{net}") || strings.Contains(resp, "\\Phi") {
-		t.Errorf("conversational response should NOT contain fake equations, got: %s", resp)
+	if resp != "" {
+		t.Fatalf("expected no fabricated vision response without a provider, got %q", resp)
 	}
 }
