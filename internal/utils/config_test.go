@@ -32,6 +32,14 @@ func TestValidateProductionConfig(t *testing.T) {
 			wantErr:        true,
 		},
 		{
+			name:           "production rejects published example jwt secret",
+			env:            "production",
+			dbURL:          "postgres://user:pass@db.example.com/app",
+			jwtSecret:      "super-secret-jwt-token-key-change-in-production-32chars",
+			allowedOrigins: "https://app.example.com",
+			wantErr:        true,
+		},
+		{
 			name:           "production rejects wildcard origins",
 			env:            "production",
 			dbURL:          "postgres://user:pass@db.example.com/app",

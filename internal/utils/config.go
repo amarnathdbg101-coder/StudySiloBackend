@@ -54,7 +54,10 @@ func validateProductionConfig(env, dbURL, jwtSecret, allowedOrigins string) erro
 	if strings.TrimSpace(dbURL) == "" {
 		return fmt.Errorf("DATABASE_URL is required when ENV=production")
 	}
-	if len(strings.TrimSpace(jwtSecret)) < 32 || strings.TrimSpace(jwtSecret) == "default-dev-secret-key-change-in-production-32chars" {
+	trimmedJWTSecret := strings.TrimSpace(jwtSecret)
+	if len(trimmedJWTSecret) < 32 ||
+		trimmedJWTSecret == "default-dev-secret-key-change-in-production-32chars" ||
+		trimmedJWTSecret == "super-secret-jwt-token-key-change-in-production-32chars" {
 		return fmt.Errorf("JWT_SECRET must be a non-default secret of at least 32 characters when ENV=production")
 	}
 
