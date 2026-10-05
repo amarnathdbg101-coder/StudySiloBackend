@@ -164,7 +164,7 @@ func (r *chatRepo) ListSessionMessages(ctx context.Context, userID, sessionID st
 		SELECT id, user_id, scope_type, scope_id, role, content, COALESCE(image_url, ''), COALESCE(audio_url, ''), created_at
 		FROM chat_messages
 		WHERE user_id = $1 AND scope_id = $2
-		ORDER BY created_at ASC
+		ORDER BY created_at DESC
 		LIMIT $3
 	`
 	rows, err := r.db.Query(ctx, query, userID, sessionID, limit)
@@ -185,5 +185,11 @@ func (r *chatRepo) ListSessionMessages(ctx context.Context, userID, sessionID st
 		}
 		messages = append(messages, m)
 	}
-	return messages, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for left, right := 0, len(messages)-1; left < right; left, right = left+1, right-1 {
+		messages[left], messages[right] = messages[right], messages[left]
+	}
+	return messages, nil
 }

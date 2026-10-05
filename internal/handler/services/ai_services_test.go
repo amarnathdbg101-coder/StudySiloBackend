@@ -117,8 +117,14 @@ func TestAITutorService_SolveDoubt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error solving session doubt: %v", err)
 	}
-	if chatRepo.listSessionMessagesCall != 0 {
-		t.Errorf("expected session answers not to load stored messages, got %d history reads", chatRepo.listSessionMessagesCall)
+	if chatRepo.listSessionMessagesCall != 1 {
+		t.Errorf("expected one read of the current session history, got %d", chatRepo.listSessionMessagesCall)
+	}
+	if !strings.Contains(generator.lastUserPrompt, "What is the difference between speed and velocity?") || !strings.Contains(generator.lastUserPrompt, generator.response) {
+		t.Errorf("expected prior turns to be included as same-chat context, got %q", generator.lastUserPrompt)
+	}
+	if !strings.Contains(generator.lastUserPrompt, "[CURRENT QUESTION - answer this request]\nExplain this question in a different way.") {
+		t.Errorf("expected the new question to remain explicit and current, got %q", generator.lastUserPrompt)
 	}
 
 	// Reference notes are clearly separated from the current question.
@@ -173,6 +179,14 @@ func TestBuildTutorPromptAdaptsToRequestedDepth(t *testing.T) {
 	generalPrompt := buildTutorPrompt("", "Can you tell me a fun fact about the moon?", "")
 	if !strings.Contains(generalPrompt, "answer naturally, not like an exam worksheet") {
 		t.Fatal("expected general questions to use natural conversational guidance")
+	}
+
+	topicPrompt := analyzeQuerySituation("Merge Sort", "")
+	if strings.Contains(topicPrompt, "CONTEXTUAL FOLLOW-UP") {
+		t.Fatal("standalone topic names must not be misclassified as follow-ups")
+	}
+	if !strings.Contains(topicPrompt, "complete explanation by default") {
+		t.Fatal("expected standalone academic topics to receive complete explanations by default")
 	}
 }
 

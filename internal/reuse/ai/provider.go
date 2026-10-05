@@ -34,7 +34,7 @@ type GeminiProvider struct {
 func normalizeGeminiModel(modelName string) string {
 	m := strings.ToLower(strings.TrimSpace(modelName))
 	if m == "" {
-		return "gemini-3.8-flash"
+		return "gemini-3.5-flash-lite"
 	}
 	switch m {
 	case "gemini-flash", "gemini-flash-latest":
@@ -584,7 +584,7 @@ func (o *Orchestrator) GetProvider(providerName, modelName string) AIProvider {
 
 	// Default to Google Gemini 3
 	if modelName == "" {
-		modelName = "gemini-3.8-flash"
+		modelName = "gemini-3.5-flash-lite"
 	}
 	if len(o.geminiKeys) > 0 {
 		return NewGeminiProvider(o.geminiKeys, modelName)
@@ -612,7 +612,7 @@ func (o *Orchestrator) GetProviderWithCustomKey(providerName, modelName, customK
 		}
 
 		if modelName == "" {
-			modelName = "gemini-2.0-flash"
+			modelName = "gemini-3.5-flash-lite"
 		}
 		return NewGeminiProvider([]string{customKey}, modelName)
 	}
@@ -666,15 +666,15 @@ func (o *Orchestrator) GenerateVisionWithModel(ctx context.Context, providerName
 }
 
 func (o *Orchestrator) GenerateText(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
-	return o.GenerateTextWithModel(ctx, "google", "gemini-3.8-flash", systemPrompt, userPrompt)
+	return o.GenerateTextWithModel(ctx, "google", "gemini-3.5-flash-lite", systemPrompt, userPrompt)
 }
 
 func (o *Orchestrator) GenerateVision(ctx context.Context, systemPrompt, userPrompt string, imageBytes []byte, mimeType string) (string, error) {
-	return o.GenerateVisionWithModel(ctx, "google", "gemini-3.8-flash", systemPrompt, userPrompt, imageBytes, mimeType)
+	return o.GenerateVisionWithModel(ctx, "google", "gemini-3.5-flash-lite", systemPrompt, userPrompt, imageBytes, mimeType)
 }
 
 func (o *Orchestrator) GenerateStructured(ctx context.Context, systemPrompt, userPrompt string, target interface{}) error {
-	p := o.GetProvider("google", "gemini-3.8-flash")
+	p := o.GetProvider("google", "gemini-3.5-flash-lite")
 	if p != nil {
 		err := p.GenerateStructured(ctx, systemPrompt, userPrompt, target)
 		if err == nil {

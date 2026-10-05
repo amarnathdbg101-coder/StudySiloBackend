@@ -80,7 +80,7 @@ func TestKeyRotator_EmptyKeys(t *testing.T) {
 
 func TestNormalizeGeminiModelPreservesCurrentModelIDs(t *testing.T) {
 	tests := map[string]string{
-		"":                       "gemini-3.8-flash",
+		"":                       "gemini-3.5-flash-lite",
 		"gemini-flash":           "gemini-3.8-flash",
 		"gemini-flash-lite":      "gemini-3.5-flash-lite",
 		"gemini-pro":             "gemini-3.1-pro-preview",
@@ -97,6 +97,17 @@ func TestNormalizeGeminiModelPreservesCurrentModelIDs(t *testing.T) {
 				t.Errorf("normalizeGeminiModel(%q) = %q, want %q", input, actual, expected)
 			}
 		})
+	}
+}
+
+func TestOrchestratorDefaultsToFlashLite(t *testing.T) {
+	orch := NewOrchestrator([]string{"key-1"}, nil, nil)
+	provider, ok := orch.GetProvider("google", "").(*GeminiProvider)
+	if !ok {
+		t.Fatal("expected default Google provider to be Gemini")
+	}
+	if provider.model != "gemini-3.5-flash-lite" {
+		t.Errorf("expected fast default model, got %q", provider.model)
 	}
 }
 
