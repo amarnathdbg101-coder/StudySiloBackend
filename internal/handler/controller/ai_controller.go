@@ -4,11 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
 	"goProjectStructure/internal/handler/dto"
 	"goProjectStructure/internal/handler/services"
 	"goProjectStructure/internal/middleware"
 	"goProjectStructure/internal/reuse"
+
+	"github.com/go-chi/chi/v5"
 )
 
 type AIController struct {
@@ -58,7 +59,10 @@ func (c *AIController) SolveDoubt(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := c.aiTutorService.SolveDoubt(r.Context(), userID, req)
 	if err != nil {
-		reuse.Error(w, http.StatusInternalServerError, err.Error())
+		reuse.JSON(w, http.StatusServiceUnavailable, reuse.Response{
+			Success: false,
+			Error:   "AI service is unavailable. Add or verify a Gemini API key in the AI Tutor key vault, or configure GEMINI_API_KEY on the backend, then retry.",
+		})
 		return
 	}
 
