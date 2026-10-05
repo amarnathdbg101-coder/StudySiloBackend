@@ -34,15 +34,15 @@ type GeminiProvider struct {
 func normalizeGeminiModel(modelName string) string {
 	m := strings.ToLower(strings.TrimSpace(modelName))
 	if m == "" {
-		return "gemini-2.0-flash"
+		return "gemini-3.8-flash"
 	}
 	switch m {
-	case "gemini-flash", "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash":
-		return "gemini-2.0-flash"
-	case "gemini-3.5-flash-lite", "gemini-flash-lite":
-		return "gemini-2.0-flash-lite"
-	case "gemini-pro", "gemini-3.1-pro-preview":
-		return "gemini-1.5-pro"
+	case "gemini-flash", "gemini-flash-latest":
+		return "gemini-3.8-flash"
+	case "gemini-flash-lite":
+		return "gemini-3.5-flash-lite"
+	case "gemini-pro":
+		return "gemini-3.1-pro-preview"
 	default:
 		return m
 	}
@@ -65,19 +65,18 @@ func getGeminiCandidates(primary string) []string {
 
 	// 2. Cascade based on model family with available live models
 	if strings.Contains(clean, "pro") {
-		add("gemini-1.5-pro")
-		add("gemini-2.0-flash")
-		add("gemini-1.5-flash")
+		add("gemini-3.8-flash")
+		add("gemini-3.7-flash")
+		add("gemini-3.5-flash-lite")
 	} else if strings.Contains(clean, "lite") {
-		add("gemini-2.0-flash-lite")
-		add("gemini-2.0-flash")
-		add("gemini-1.5-flash")
+		add("gemini-3.8-flash")
+		add("gemini-3.7-flash")
+		add("gemini-3.5-flash")
 	} else {
-		// Flash & General Reasoning models (try fastest live model first)
-		add("gemini-2.0-flash")
-		add("gemini-1.5-flash")
-		add("gemini-1.5-pro")
-		add("gemini-2.0-flash-lite")
+		add("gemini-3.7-flash")
+		add("gemini-3.6-flash")
+		add("gemini-3.5-flash")
+		add("gemini-3.5-flash-lite")
 	}
 
 	return list
@@ -108,7 +107,7 @@ func (g *GeminiProvider) GenerateText(ctx context.Context, systemPrompt, userPro
 	var lastErr error
 
 	for _, mod := range candidateModels {
-		url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", mod, key)
+		url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", mod)
 
 		// 1. Structured payload with native system_instruction and max generation depth
 		reqBody := map[string]interface{}{
@@ -142,6 +141,7 @@ func (g *GeminiProvider) GenerateText(ctx context.Context, systemPrompt, userPro
 			return "", err
 		}
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("x-goog-api-key", key)
 
 		resp, err := g.httpClient.Do(req)
 		if err != nil {
@@ -189,6 +189,7 @@ func (g *GeminiProvider) GenerateText(ctx context.Context, systemPrompt, userPro
 			fbRaw, _ := json.Marshal(fallbackBody)
 			fbReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(fbRaw))
 			fbReq.Header.Set("Content-Type", "application/json")
+			fbReq.Header.Set("x-goog-api-key", key)
 			if fbResp, fbErr := g.httpClient.Do(fbReq); fbErr == nil {
 				fbBytes, _ := io.ReadAll(fbResp.Body)
 				fbResp.Body.Close()
@@ -247,7 +248,7 @@ func (g *GeminiProvider) GenerateVision(ctx context.Context, systemPrompt, userP
 	var lastErr error
 
 	for _, mod := range candidateModels {
-		url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", mod, key)
+		url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", mod)
 
 		reqBody := map[string]interface{}{
 			"contents": []map[string]interface{}{
@@ -281,6 +282,7 @@ func (g *GeminiProvider) GenerateVision(ctx context.Context, systemPrompt, userP
 			return "", err
 		}
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("x-goog-api-key", key)
 
 		resp, err := g.httpClient.Do(req)
 		if err != nil {

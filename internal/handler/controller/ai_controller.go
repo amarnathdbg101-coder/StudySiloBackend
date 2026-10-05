@@ -2,6 +2,7 @@ package controller
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"goProjectStructure/internal/handler/dto"
@@ -59,6 +60,7 @@ func (c *AIController) SolveDoubt(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := c.aiTutorService.SolveDoubt(r.Context(), userID, req)
 	if err != nil {
+		log.Printf("AI doubt generation failed: %v", err)
 		reuse.JSON(w, http.StatusServiceUnavailable, reuse.Response{
 			Success: false,
 			Error:   "AI service is unavailable. Add or verify a Gemini API key in the AI Tutor key vault, or configure GEMINI_API_KEY on the backend, then retry.",

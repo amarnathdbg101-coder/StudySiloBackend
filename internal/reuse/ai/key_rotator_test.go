@@ -70,6 +70,49 @@ func TestKeyRotator_EmptyKeys(t *testing.T) {
 	}
 }
 
+func TestNormalizeGeminiModelPreservesCurrentModelIDs(t *testing.T) {
+	tests := map[string]string{
+		"":                       "gemini-3.8-flash",
+		"gemini-flash":           "gemini-3.8-flash",
+		"gemini-flash-lite":      "gemini-3.5-flash-lite",
+		"gemini-pro":             "gemini-3.1-pro-preview",
+		"gemini-3.8-flash":       "gemini-3.8-flash",
+		"gemini-3.7-flash":       "gemini-3.7-flash",
+		"gemini-3.6-flash":       "gemini-3.6-flash",
+		"gemini-3.5-flash-lite":  "gemini-3.5-flash-lite",
+		"gemini-3.1-pro-preview": "gemini-3.1-pro-preview",
+	}
+
+	for input, expected := range tests {
+		t.Run(input, func(t *testing.T) {
+			if actual := normalizeGeminiModel(input); actual != expected {
+				t.Errorf("normalizeGeminiModel(%q) = %q, want %q", input, actual, expected)
+			}
+		})
+	}
+}
+
+func TestGetGeminiCandidatesExcludeShutdownModels(t *testing.T) {
+	shutdownModels := map[string]bool{
+		"gemini-1.5-pro":        true,
+		"gemini-1.5-flash":      true,
+		"gemini-2.0-flash":      true,
+		"gemini-2.0-flash-lite": true,
+	}
+
+	for _, model := range []string{"gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.1-pro-preview"} {
+		candidates := getGeminiCandidates(model)
+		if len(candidates) == 0 || candidates[0] != model {
+			t.Errorf("first candidate for %q = %v, want requested model first", model, candidates)
+		}
+		for _, candidate := range candidates {
+			if shutdownModels[candidate] {
+				t.Errorf("candidate list for %q contains shut-down model %q", model, candidate)
+			}
+		}
+	}
+}
+
 func TestOrchestrator_RequiresConfiguredProvider(t *testing.T) {
 	orch := NewOrchestrator([]string{}, []string{}, []string{})
 	ctx := context.Background()
