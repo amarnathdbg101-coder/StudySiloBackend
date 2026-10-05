@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"goProjectStructure/internal/handler/dto"
 	"goProjectStructure/internal/handler/services"
@@ -13,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 )
 
 type AIController struct {
@@ -78,12 +80,13 @@ type aiTutorStreamService interface {
 }
 
 type aiTutorStreamEvent struct {
-	Type          string   `json:"type"`
-	Text          string   `json:"text,omitempty"`
-	Message       string   `json:"message,omitempty"`
-	SessionID     string   `json:"session_id,omitempty"`
-	SessionTitle  string   `json:"session_title,omitempty"`
-	FollowUpChips []string `json:"follow_up_chips,omitempty"`
+	Type               string   `json:"type"`
+	Text               string   `json:"text,omitempty"`
+	Message            string   `json:"message,omitempty"`
+	SessionID          string   `json:"session_id,omitempty"`
+	SessionTitle       string   `json:"session_title,omitempty"`
+	AssistantMessageID string   `json:"assistant_message_id,omitempty"`
+	FollowUpChips      []string `json:"follow_up_chips,omitempty"`
 }
 
 func (c *AIController) SolveDoubtStream(w http.ResponseWriter, r *http.Request) {
@@ -150,10 +153,11 @@ func (c *AIController) SolveDoubtStream(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeEvent(aiTutorStreamEvent{
-		Type:          "done",
-		SessionID:     response.SessionID,
-		SessionTitle:  response.SessionTitle,
-		FollowUpChips: response.FollowUpChips,
+		Type:               "done",
+		SessionID:          response.SessionID,
+		SessionTitle:       response.SessionTitle,
+		AssistantMessageID: response.AssistantMessageID,
+		FollowUpChips:      response.FollowUpChips,
 	})
 }
 
@@ -299,6 +303,33 @@ func (c *AIController) DeleteChatSession(w http.ResponseWriter, r *http.Request)
 	}
 
 	reuse.Success(w, "chat session deleted successfully", nil)
+}
+
+// DeleteChatTurn deletes a user question and its assistant response.
+func (c *AIController) DeleteChatTurn(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	if claims == nil {
+		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
+		return
+	}
+
+	sessionID := chi.URLParam(r, "id")
+	messageID := chi.URLParam(r, "messageID")
+	if sessionID == "" || messageID == "" {
+		reuse.Error(w, http.StatusBadRequest, "session and message ids are required")
+		return
+	}
+
+	if err := c.aiTutorService.DeleteChatTurn(r.Context(), claims.UserID, sessionID, messageID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			reuse.Error(w, http.StatusNotFound, "chat turn not found")
+			return
+		}
+		reuse.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	reuse.Success(w, "chat turn deleted successfully", nil)
 }
 
 // AnalyzeNotes converts lecture notes into summaries, flashcards, and cheat sheets

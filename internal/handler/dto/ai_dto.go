@@ -32,15 +32,16 @@ type ConversationTurn struct {
 }
 
 type DoubtResponse struct {
-	Question         string   `json:"question"`
-	SolutionMarkdown string   `json:"solution_markdown"`
-	CoreConcept      string   `json:"core_concept"`
-	CommonPitfalls   string   `json:"common_pitfalls"`
-	FollowUpChips    []string `json:"follow_up_chips"`
-	ActiveProvider   string   `json:"active_provider"`
-	ActiveModel      string   `json:"active_model"`
-	SessionID        string   `json:"session_id,omitempty"`
-	SessionTitle     string   `json:"session_title,omitempty"`
+	Question           string   `json:"question"`
+	SolutionMarkdown   string   `json:"solution_markdown"`
+	CoreConcept        string   `json:"core_concept"`
+	CommonPitfalls     string   `json:"common_pitfalls"`
+	FollowUpChips      []string `json:"follow_up_chips"`
+	ActiveProvider     string   `json:"active_provider"`
+	ActiveModel        string   `json:"active_model"`
+	SessionID          string   `json:"session_id,omitempty"`
+	SessionTitle       string   `json:"session_title,omitempty"`
+	AssistantMessageID string   `json:"assistant_message_id,omitempty"`
 }
 
 type CreateSessionRequest struct {

@@ -19,6 +19,7 @@ type AITutorService interface {
 	GetSessionMessages(ctx context.Context, userID, sessionID string) ([]*model.ChatMessage, error)
 	UpdateSession(ctx context.Context, userID, sessionID, title string) error
 	DeleteSession(ctx context.Context, userID, sessionID string) error
+	DeleteChatTurn(ctx context.Context, userID, sessionID, messageID string) error
 }
 
 type aiTutorService struct {
@@ -202,13 +203,16 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 				Content:   req.Question,
 			})
 		}
-		_ = s.chatRepo.SaveMessage(ctx, &model.ChatMessage{
+		assistantMessage := &model.ChatMessage{
 			UserID:    userID,
 			ScopeType: scopeType,
 			ScopeID:   effectiveScopeID,
 			Role:      "assistant",
 			Content:   answerText,
-		})
+		}
+		if err := s.chatRepo.SaveMessage(ctx, assistantMessage); err == nil {
+			resp.AssistantMessageID = assistantMessage.ID
+		}
 	}
 
 	return resp, nil
@@ -285,6 +289,13 @@ func (s *aiTutorService) DeleteSession(ctx context.Context, userID, sessionID st
 		return fmt.Errorf("chat repository not available")
 	}
 	return s.chatRepo.DeleteSession(ctx, userID, sessionID)
+}
+
+func (s *aiTutorService) DeleteChatTurn(ctx context.Context, userID, sessionID, messageID string) error {
+	if s.chatRepo == nil {
+		return fmt.Errorf("chat repository not available")
+	}
+	return s.chatRepo.DeleteChatTurn(ctx, userID, sessionID, messageID)
 }
 
 func analyzeQuerySituation(userMessage, contextNotes string) string {

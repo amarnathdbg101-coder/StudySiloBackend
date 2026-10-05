@@ -15,6 +15,8 @@ type mockChatRepo struct {
 	listSessionMessagesCall int
 	replaceLastQuestionCall int
 	replacedQuestion        string
+	deleteChatTurnCall      int
+	deletedMessageID        string
 }
 
 type mockAITutorGenerator struct {
@@ -82,6 +84,12 @@ func (m *mockChatRepo) DeleteSession(ctx context.Context, userID, sessionID stri
 	return nil
 }
 
+func (m *mockChatRepo) DeleteChatTurn(_ context.Context, _, _, messageID string) error {
+	m.deleteChatTurnCall++
+	m.deletedMessageID = messageID
+	return nil
+}
+
 func (m *mockChatRepo) ReplaceLastQuestion(_ context.Context, _, _, content string) error {
 	m.replaceLastQuestionCall++
 	m.replacedQuestion = content
@@ -91,6 +99,18 @@ func (m *mockChatRepo) ReplaceLastQuestion(_ context.Context, _, _, content stri
 func (m *mockChatRepo) ListSessionMessages(ctx context.Context, userID, sessionID string, limit int) ([]*model.ChatMessage, error) {
 	m.listSessionMessagesCall++
 	return m.messages, nil
+}
+
+func TestAITutorService_DeleteChatTurn(t *testing.T) {
+	chatRepo := &mockChatRepo{}
+	tutor := NewAITutorService(nil, chatRepo)
+
+	if err := tutor.DeleteChatTurn(context.Background(), "user-1", "session-1", "assistant-message-1"); err != nil {
+		t.Fatalf("unexpected error deleting chat turn: %v", err)
+	}
+	if chatRepo.deleteChatTurnCall != 1 || chatRepo.deletedMessageID != "assistant-message-1" {
+		t.Fatalf("expected delete for assistant-message-1, got calls=%d id=%q", chatRepo.deleteChatTurnCall, chatRepo.deletedMessageID)
+	}
 }
 
 func TestAITutorService_SolveDoubt(t *testing.T) {

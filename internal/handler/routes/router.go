@@ -96,6 +96,7 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 				r.Get("/sessions", aiCtrl.ListChatSessions)
 				r.Post("/sessions", aiCtrl.CreateChatSession)
 				r.Get("/sessions/{id}", aiCtrl.GetChatSessionMessages)
+				r.Delete("/sessions/{id}/messages/{messageID}", aiCtrl.DeleteChatTurn)
 				r.Patch("/sessions/{id}", aiCtrl.UpdateChatSession)
 				r.Delete("/sessions/{id}", aiCtrl.DeleteChatSession)
 				r.Post("/analyze-notes", aiCtrl.AnalyzeNotes)
