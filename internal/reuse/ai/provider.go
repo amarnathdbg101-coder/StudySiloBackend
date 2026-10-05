@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -99,6 +100,142 @@ func (g *GeminiProvider) Name() string {
 
 func (g *GeminiProvider) GenerateText(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	return g.generateText(ctx, systemPrompt, userPrompt, g.rotator.KeyCount())
+}
+
+func (g *GeminiProvider) GenerateTextStream(ctx context.Context, systemPrompt, userPrompt string, onChunk func(string)) (string, error) {
+	return g.generateTextStream(ctx, systemPrompt, userPrompt, g.rotator.KeyCount(), onChunk)
+}
+
+func (g *GeminiProvider) generateTextStream(ctx context.Context, systemPrompt, userPrompt string, remainingKeyAttempts int, onChunk func(string)) (string, error) {
+	key, err := g.rotator.GetNextKey()
+	if err != nil {
+		return "", err
+	}
+
+	candidateModels := getGeminiCandidates(g.model)
+	var lastErr error
+	for _, mod := range candidateModels {
+		url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:streamGenerateContent?alt=sse", mod)
+		reqBody := map[string]interface{}{
+			"system_instruction": map[string]interface{}{
+				"parts": []map[string]interface{}{{"text": systemPrompt}},
+			},
+			"contents": []map[string]interface{}{{
+				"role":  "user",
+				"parts": []map[string]interface{}{{"text": userPrompt}},
+			}},
+			"generationConfig": map[string]interface{}{
+				"temperature":     0.35,
+				"topP":            0.95,
+				"maxOutputTokens": 8192,
+			},
+		}
+		raw, err := json.Marshal(reqBody)
+		if err != nil {
+			return "", err
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(raw))
+		if err != nil {
+			return "", err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "text/event-stream")
+		req.Header.Set("x-goog-api-key", key)
+
+		resp, err := g.httpClient.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		if resp.StatusCode == http.StatusBadRequest {
+			resp.Body.Close()
+			text, fallbackErr := g.GenerateText(ctx, systemPrompt, userPrompt)
+			if fallbackErr != nil {
+				return "", fallbackErr
+			}
+			if onChunk != nil && text != "" {
+				onChunk(text)
+			}
+			return text, nil
+		}
+		if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusServiceUnavailable {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			lastErr = fmt.Errorf("gemini stream model %s returned %d: %s", mod, resp.StatusCode, strings.TrimSpace(string(body)))
+			continue
+		}
+		if resp.StatusCode == http.StatusTooManyRequests {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			g.rotator.MarkRateLimited(key, 60*time.Second)
+			if remainingKeyAttempts > 1 {
+				return g.generateTextStream(ctx, systemPrompt, userPrompt, remainingKeyAttempts-1, onChunk)
+			}
+			return "", fmt.Errorf("gemini stream rate limit 429: %s", strings.TrimSpace(string(body)))
+		}
+		if resp.StatusCode >= 400 {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			g.rotator.MarkError(key)
+			return "", fmt.Errorf("gemini stream error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+
+		var answer strings.Builder
+		scanner := bufio.NewScanner(resp.Body)
+		scanner.Buffer(make([]byte, 4096), 1024*1024)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if !strings.HasPrefix(line, "data:") {
+				continue
+			}
+			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if payload == "" || payload == "[DONE]" {
+				continue
+			}
+
+			var event struct {
+				Candidates []struct {
+					Content struct {
+						Parts []struct {
+							Text string `json:"text"`
+						} `json:"parts"`
+					} `json:"content"`
+				} `json:"candidates"`
+			}
+			if err := json.Unmarshal([]byte(payload), &event); err != nil {
+				resp.Body.Close()
+				return "", fmt.Errorf("invalid Gemini stream event: %w", err)
+			}
+			if len(event.Candidates) == 0 {
+				continue
+			}
+			for _, part := range event.Candidates[0].Content.Parts {
+				if part.Text == "" {
+					continue
+				}
+				answer.WriteString(part.Text)
+				if onChunk != nil {
+					onChunk(part.Text)
+				}
+			}
+		}
+		resp.Body.Close()
+		if err := scanner.Err(); err != nil {
+			return answer.String(), fmt.Errorf("Gemini stream interrupted: %w", err)
+		}
+		if answer.Len() == 0 {
+			return "", errors.New("empty streaming response from Gemini")
+		}
+		g.rotator.MarkSuccess(key)
+		return answer.String(), nil
+	}
+
+	if lastErr != nil {
+		return "", lastErr
+	}
+	return "", errors.New("no Gemini streaming model available")
 }
 
 func (g *GeminiProvider) generateText(ctx context.Context, systemPrompt, userPrompt string, remainingKeyAttempts int) (string, error) {
@@ -626,6 +763,36 @@ func (o *Orchestrator) GenerateTextWithCustomKey(ctx context.Context, customKey,
 	}
 
 	text, err := p.GenerateText(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		if customKey != "" {
+			return "", fmt.Errorf("AI generation with provided API key failed: %w", err)
+		}
+		return "", fmt.Errorf("AI generation failed: %w", err)
+	}
+	if strings.TrimSpace(text) == "" {
+		return "", errors.New("AI provider returned an empty response")
+	}
+	return text, nil
+}
+
+func (o *Orchestrator) GenerateTextStreamWithCustomKey(ctx context.Context, customKey, providerName, modelName, systemPrompt, userPrompt string, onChunk func(string)) (string, error) {
+	p := o.GetProviderWithCustomKey(providerName, modelName, customKey)
+	if p == nil {
+		return "", fmt.Errorf("AI provider unavailable: no configured API key for %s", providerName)
+	}
+
+	var text string
+	var err error
+	if streamer, ok := p.(interface {
+		GenerateTextStream(context.Context, string, string, func(string)) (string, error)
+	}); ok {
+		text, err = streamer.GenerateTextStream(ctx, systemPrompt, userPrompt, onChunk)
+	} else {
+		text, err = p.GenerateText(ctx, systemPrompt, userPrompt)
+		if err == nil && onChunk != nil && text != "" {
+			onChunk(text)
+		}
+	}
 	if err != nil {
 		if customKey != "" {
 			return "", fmt.Errorf("AI generation with provided API key failed: %w", err)

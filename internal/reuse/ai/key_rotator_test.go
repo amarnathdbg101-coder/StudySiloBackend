@@ -195,6 +195,40 @@ func TestGeminiRetriesNextModelAfterServiceUnavailable(t *testing.T) {
 	}
 }
 
+func TestGeminiTextStreamEmitsIncrementalChunks(t *testing.T) {
+	provider := NewGeminiProvider([]string{"test-key"}, "gemini-3.5-flash-lite")
+	provider.httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if !strings.Contains(req.URL.String(), ":streamGenerateContent?alt=sse") {
+			t.Errorf("expected Gemini SSE endpoint, got %s", req.URL)
+		}
+		if req.Header.Get("x-goog-api-key") != "test-key" {
+			t.Errorf("expected API key header")
+		}
+		body := "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hello \"}]}}]}\n\n" +
+			"data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"world\"}]}}]}\n\n"
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     make(http.Header),
+			Request:    req,
+		}, nil
+	})}
+
+	var chunks []string
+	answer, err := provider.GenerateTextStream(context.Background(), "system", "question", func(chunk string) {
+		chunks = append(chunks, chunk)
+	})
+	if err != nil {
+		t.Fatalf("unexpected stream error: %v", err)
+	}
+	if answer != "Hello world" {
+		t.Fatalf("expected combined answer, got %q", answer)
+	}
+	if len(chunks) != 2 || chunks[0] != "Hello " || chunks[1] != "world" {
+		t.Fatalf("expected incremental text chunks, got %v", chunks)
+	}
+}
+
 func TestOrchestrator_RequiresConfiguredProvider(t *testing.T) {
 	orch := NewOrchestrator([]string{}, []string{}, []string{})
 	ctx := context.Background()

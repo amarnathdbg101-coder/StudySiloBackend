@@ -35,6 +35,16 @@ func (m *mockAITutorGenerator) GenerateVisionWithCustomKey(_ context.Context, _,
 	return m.response, nil
 }
 
+func (m *mockAITutorGenerator) GenerateTextStreamWithCustomKey(_ context.Context, _, _, _, systemPrompt, userPrompt string, onChunk func(string)) (string, error) {
+	m.generateTextCalls++
+	m.lastSystemPrompt = systemPrompt
+	m.lastUserPrompt = userPrompt
+	middle := len(m.response) / 2
+	onChunk(m.response[:middle])
+	onChunk(m.response[middle:])
+	return m.response, nil
+}
+
 func (m *mockChatRepo) SaveMessage(ctx context.Context, msg *model.ChatMessage) error {
 	msg.ID = "msg-1"
 	m.messages = append(m.messages, msg)
@@ -175,6 +185,31 @@ func TestAITutorService_SolveDoubt(t *testing.T) {
 	}
 	if len(greetingResp.FollowUpChips) != 0 {
 		t.Errorf("greeting should not receive academic follow-up chips: %v", greetingResp.FollowUpChips)
+	}
+}
+
+func TestAITutorService_SolveDoubtStream(t *testing.T) {
+	generator := &mockAITutorGenerator{response: "A streamed answer for the current question."}
+	tutor := NewAITutorService(generator, nil)
+	streamer, ok := tutor.(interface {
+		SolveDoubtStream(context.Context, string, dto.DoubtRequest, func(string)) (*dto.DoubtResponse, error)
+	})
+	if !ok {
+		t.Fatal("AI tutor service does not expose streaming responses")
+	}
+
+	var chunks []string
+	response, err := streamer.SolveDoubtStream(context.Background(), "", dto.DoubtRequest{Question: "Explain merge sort"}, func(chunk string) {
+		chunks = append(chunks, chunk)
+	})
+	if err != nil {
+		t.Fatalf("unexpected streaming error: %v", err)
+	}
+	if response.SolutionMarkdown != generator.response {
+		t.Fatalf("expected complete final answer %q, got %q", generator.response, response.SolutionMarkdown)
+	}
+	if strings.Join(chunks, "") != response.SolutionMarkdown || len(chunks) != 2 {
+		t.Fatalf("expected two ordered chunks composing the final answer, got %v", chunks)
 	}
 }
 

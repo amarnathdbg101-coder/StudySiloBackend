@@ -31,6 +31,10 @@ type aiTutorGenerator interface {
 	GenerateVisionWithCustomKey(ctx context.Context, customKey, providerName, modelName, systemPrompt, userPrompt string, imageBytes []byte, mimeType string) (string, error)
 }
 
+type aiTutorStreamGenerator interface {
+	GenerateTextStreamWithCustomKey(ctx context.Context, customKey, providerName, modelName, systemPrompt, userPrompt string, onChunk func(string)) (string, error)
+}
+
 func NewAITutorService(
 	orchestrator aiTutorGenerator,
 	chatRepo repository.ChatRepository,
@@ -42,6 +46,14 @@ func NewAITutorService(
 }
 
 func (s *aiTutorService) SolveDoubt(ctx context.Context, userID string, req dto.DoubtRequest) (*dto.DoubtResponse, error) {
+	return s.solveDoubt(ctx, userID, req, nil)
+}
+
+func (s *aiTutorService) SolveDoubtStream(ctx context.Context, userID string, req dto.DoubtRequest, onChunk func(string)) (*dto.DoubtResponse, error) {
+	return s.solveDoubt(ctx, userID, req, onChunk)
+}
+
+func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.DoubtRequest, onChunk func(string)) (*dto.DoubtResponse, error) {
 	if s.orchestrator == nil {
 		return nil, fmt.Errorf("AI service error: orchestrator not initialized")
 	}
@@ -89,7 +101,7 @@ func (s *aiTutorService) SolveDoubt(ctx context.Context, userID string, req dto.
 			}
 			answerText, err = s.orchestrator.GenerateVisionWithCustomKey(ctx, req.APIKey, provider, modelName, systemPrompt, audioPrompt, audioBytes, mime)
 		} else {
-			answerText, err = s.orchestrator.GenerateTextWithCustomKey(ctx, req.APIKey, provider, modelName, systemPrompt, userQuery)
+			answerText, err = s.generateText(ctx, req.APIKey, provider, modelName, systemPrompt, userQuery, onChunk)
 		}
 	} else if req.ImageBase64 != "" {
 		// 2. If handwritten image is provided, run vision multimodal pipeline
@@ -101,14 +113,17 @@ func (s *aiTutorService) SolveDoubt(ctx context.Context, userID string, req dto.
 			}
 			answerText, err = s.orchestrator.GenerateVisionWithCustomKey(ctx, req.APIKey, provider, modelName, systemPrompt, userQuery, imgBytes, mime)
 		} else {
-			answerText, err = s.orchestrator.GenerateTextWithCustomKey(ctx, req.APIKey, provider, modelName, systemPrompt, userQuery)
+			answerText, err = s.generateText(ctx, req.APIKey, provider, modelName, systemPrompt, userQuery, onChunk)
 		}
 	} else {
 		// 3. Pure text doubt
-		answerText, err = s.orchestrator.GenerateTextWithCustomKey(ctx, req.APIKey, provider, modelName, systemPrompt, userQuery)
+		answerText, err = s.generateText(ctx, req.APIKey, provider, modelName, systemPrompt, userQuery, onChunk)
 	}
 
-	if err != nil && answerText == "" {
+	if onChunk != nil && (req.ImageBase64 != "" || req.AudioBase64 != "") && err == nil && answerText != "" {
+		onChunk(answerText)
+	}
+	if err != nil {
 		return nil, fmt.Errorf("AI service error: %w", err)
 	}
 
@@ -188,6 +203,19 @@ func (s *aiTutorService) SolveDoubt(ctx context.Context, userID string, req dto.
 	}
 
 	return resp, nil
+}
+
+func (s *aiTutorService) generateText(ctx context.Context, apiKey, provider, modelName, systemPrompt, userQuery string, onChunk func(string)) (string, error) {
+	if onChunk != nil {
+		if streamer, ok := s.orchestrator.(aiTutorStreamGenerator); ok {
+			return streamer.GenerateTextStreamWithCustomKey(ctx, apiKey, provider, modelName, systemPrompt, userQuery, onChunk)
+		}
+	}
+	text, err := s.orchestrator.GenerateTextWithCustomKey(ctx, apiKey, provider, modelName, systemPrompt, userQuery)
+	if err == nil && onChunk != nil && text != "" {
+		onChunk(text)
+	}
+	return text, err
 }
 
 func (s *aiTutorService) GetChatHistory(ctx context.Context, userID, scopeType, scopeID string) ([]*model.ChatMessage, error) {

@@ -1,15 +1,16 @@
 package controller
 
 import (
+	"context"
 	"encoding/json"
-	"log"
-	"net/http"
-	"strings"
-
+	"fmt"
 	"goProjectStructure/internal/handler/dto"
 	"goProjectStructure/internal/handler/services"
 	"goProjectStructure/internal/middleware"
 	"goProjectStructure/internal/reuse"
+	"log"
+	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -70,6 +71,90 @@ func (c *AIController) SolveDoubt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reuse.Success(w, "doubt answered successfully", resp)
+}
+
+type aiTutorStreamService interface {
+	SolveDoubtStream(ctx context.Context, userID string, req dto.DoubtRequest, onChunk func(string)) (*dto.DoubtResponse, error)
+}
+
+type aiTutorStreamEvent struct {
+	Type          string   `json:"type"`
+	Text          string   `json:"text,omitempty"`
+	Message       string   `json:"message,omitempty"`
+	SessionID     string   `json:"session_id,omitempty"`
+	SessionTitle  string   `json:"session_title,omitempty"`
+	FollowUpChips []string `json:"follow_up_chips,omitempty"`
+}
+
+func (c *AIController) SolveDoubtStream(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	userID := ""
+	if claims != nil {
+		userID = claims.UserID
+	}
+
+	var req dto.DoubtRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		reuse.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := reuse.ValidateStruct(req); err != nil {
+		reuse.Error(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	if req.APIKey == "" {
+		if headerKey := r.Header.Get("X-Gemini-API-Key"); headerKey != "" {
+			req.APIKey = headerKey
+		} else if headerKey := r.Header.Get("X-API-Key"); headerKey != "" {
+			req.APIKey = headerKey
+		}
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		reuse.Error(w, http.StatusInternalServerError, "streaming is not supported by this server")
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	_, _ = fmt.Fprint(w, ": connected\n\n")
+	flusher.Flush()
+
+	writeEvent := func(event aiTutorStreamEvent) {
+		payload, err := json.Marshal(event)
+		if err != nil {
+			return
+		}
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", payload)
+		flusher.Flush()
+	}
+
+	var response *dto.DoubtResponse
+	var err error
+	if streamService, supportsStreaming := c.aiTutorService.(aiTutorStreamService); supportsStreaming {
+		response, err = streamService.SolveDoubtStream(r.Context(), userID, req, func(text string) {
+			writeEvent(aiTutorStreamEvent{Type: "chunk", Text: text})
+		})
+	} else {
+		response, err = c.aiTutorService.SolveDoubt(r.Context(), userID, req)
+		if err == nil && response != nil {
+			writeEvent(aiTutorStreamEvent{Type: "chunk", Text: response.SolutionMarkdown})
+		}
+	}
+	if err != nil {
+		log.Printf("AI doubt streaming failed: %v", err)
+		writeEvent(aiTutorStreamEvent{Type: "error", Message: publicAIError(err, req.APIKey)})
+		return
+	}
+	writeEvent(aiTutorStreamEvent{
+		Type:          "done",
+		SessionID:     response.SessionID,
+		SessionTitle:  response.SessionTitle,
+		FollowUpChips: response.FollowUpChips,
+	})
 }
 
 func publicAIError(err error, apiKey string) string {

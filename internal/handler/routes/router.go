@@ -1,4 +1,4 @@
-//Package routes defines the HTTP routing and middleware setup for the application. It initializes the Chi router, configures global middlewares (such as request ID, recovery, security headers, logging, CORS, and rate limiting), and sets up API endpoints for authentication, AI learning features, quizzes, and cognitive profile management. The RouteSetup function wires together controllers, services, and repositories to handle incoming requests and provide appropriate responses.
+// Package routes defines the HTTP routing and middleware setup for the application. It initializes the Chi router, configures global middlewares (such as request ID, recovery, security headers, logging, CORS, and rate limiting), and sets up API endpoints for authentication, AI learning features, quizzes, and cognitive profile management. The RouteSetup function wires together controllers, services, and repositories to handle incoming requests and provide appropriate responses.
 package routes
 
 import (
@@ -85,6 +85,7 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 			r.Group(func(r chi.Router) {
 				r.Use(middleware.OptionalJWTAuth(cfg.JwtSecret))
 				r.Post("/doubt", aiCtrl.SolveDoubt)
+				r.Post("/doubt/stream", aiCtrl.SolveDoubtStream)
 				r.Post("/diagram", aiCtrl.GenerateDiagram)
 			})
 
