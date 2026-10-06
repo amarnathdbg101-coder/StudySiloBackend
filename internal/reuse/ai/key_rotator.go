@@ -1,3 +1,4 @@
+//Package ai provides a thread-safe API key rotation mechanism for managing multiple API keys with health tracking and rate limit handling.
 package ai
 
 import (

@@ -546,7 +546,35 @@ func (o *OpenAIProvider) Name() string {
 	return fmt.Sprintf("OpenAI (%s)", o.model)
 }
 
+func openAIErrorDetails(statusCode int, body []byte) (string, string) {
+	var response struct {
+		Error struct {
+			Message string `json:"message"`
+			Type    string `json:"type"`
+			Code    string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &response); err == nil && response.Error.Message != "" {
+		detail := response.Error.Message
+		if response.Error.Code != "" {
+			detail += " (" + response.Error.Code + ")"
+		} else if response.Error.Type != "" {
+			detail += " (" + response.Error.Type + ")"
+		}
+		code := response.Error.Code
+		if code == "" {
+			code = response.Error.Type
+		}
+		return fmt.Sprintf("openai error (%d): %s", statusCode, detail), code
+	}
+	return fmt.Sprintf("openai error (%d): %s", statusCode, strings.TrimSpace(string(body))), ""
+}
+
 func (o *OpenAIProvider) GenerateText(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	return o.generateText(ctx, systemPrompt, userPrompt, o.rotator.KeyCount())
+}
+
+func (o *OpenAIProvider) generateText(ctx context.Context, systemPrompt, userPrompt string, remainingKeyAttempts int) (string, error) {
 	key, err := o.rotator.GetNextKey()
 	if err != nil {
 		return "", err
@@ -579,13 +607,20 @@ func (o *OpenAIProvider) GenerateText(ctx context.Context, systemPrompt, userPro
 	bodyBytes, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode == http.StatusTooManyRequests {
-		o.rotator.MarkRateLimited(key, 60*time.Second)
-		return "", fmt.Errorf("openai rate limit 429")
+		message, code := openAIErrorDetails(resp.StatusCode, bodyBytes)
+		if code != "insufficient_quota" {
+			o.rotator.MarkRateLimited(key, 60*time.Second)
+		}
+		if remainingKeyAttempts > 1 {
+			return o.generateText(ctx, systemPrompt, userPrompt, remainingKeyAttempts-1)
+		}
+		return "", errors.New(message)
 	}
 
 	if resp.StatusCode >= 400 {
 		o.rotator.MarkError(key)
-		return "", fmt.Errorf("openai error (%d): %s", resp.StatusCode, string(bodyBytes))
+		message, _ := openAIErrorDetails(resp.StatusCode, bodyBytes)
+		return "", errors.New(message)
 	}
 
 	o.rotator.MarkSuccess(key)
@@ -651,9 +686,17 @@ func (o *OpenAIProvider) GenerateVision(ctx context.Context, systemPrompt, userP
 	defer resp.Body.Close()
 
 	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusTooManyRequests {
+		message, code := openAIErrorDetails(resp.StatusCode, bodyBytes)
+		if code != "insufficient_quota" {
+			o.rotator.MarkRateLimited(key, 60*time.Second)
+		}
+		return "", errors.New("openai vision " + message)
+	}
 	if resp.StatusCode >= 400 {
 		o.rotator.MarkError(key)
-		return "", fmt.Errorf("openai vision error (%d): %s", resp.StatusCode, string(bodyBytes))
+		message, _ := openAIErrorDetails(resp.StatusCode, bodyBytes)
+		return "", errors.New("openai vision " + message)
 	}
 
 	o.rotator.MarkSuccess(key)

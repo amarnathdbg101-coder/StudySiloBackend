@@ -164,6 +164,58 @@ func TestGeminiRetriesWithNextKeyAfterRateLimit(t *testing.T) {
 	}
 }
 
+func TestOpenAIQuotaErrorIsPreservedWithoutRateLimitCooldown(t *testing.T) {
+	provider := NewOpenAIProvider([]string{"key-1"}, "gpt-4o-mini")
+	provider.httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusTooManyRequests,
+			Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"You exceeded your current quota.","type":"insufficient_quota","code":"insufficient_quota"}}`)),
+			Header:     make(http.Header),
+			Request:    req,
+		}, nil
+	})}
+
+	_, err := provider.GenerateText(context.Background(), "system", "question")
+	if err == nil || !strings.Contains(err.Error(), "insufficient_quota") || !strings.Contains(err.Error(), "current quota") {
+		t.Fatalf("expected detailed OpenAI quota error, got %v", err)
+	}
+	if key, err := provider.rotator.GetNextKey(); err != nil || key != "key-1" {
+		t.Fatalf("quota exhaustion should not trigger a temporary rate-limit cooldown; key=%q err=%v", key, err)
+	}
+}
+
+func TestOpenAIRetriesNextKeyAfterRateLimit(t *testing.T) {
+	var usedKeys []string
+	provider := NewOpenAIProvider([]string{"key-1", "key-2"}, "gpt-4o-mini")
+	provider.httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		key := strings.TrimPrefix(req.Header.Get("Authorization"), "Bearer ")
+		usedKeys = append(usedKeys, key)
+		statusCode := http.StatusOK
+		body := `{"choices":[{"message":{"content":"answer from second key"}}]}`
+		if key == "key-1" {
+			statusCode = http.StatusTooManyRequests
+			body = `{"error":{"message":"Rate limit reached.","type":"rate_limit_exceeded","code":"rate_limit_exceeded"}}`
+		}
+		return &http.Response{
+			StatusCode: statusCode,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     make(http.Header),
+			Request:    req,
+		}, nil
+	})}
+
+	answer, err := provider.GenerateText(context.Background(), "system", "question")
+	if err != nil {
+		t.Fatalf("expected the second key to succeed, got error: %v", err)
+	}
+	if answer != "answer from second key" {
+		t.Fatalf("expected answer from second key, got %q", answer)
+	}
+	if len(usedKeys) != 2 || usedKeys[0] != "key-1" || usedKeys[1] != "key-2" {
+		t.Fatalf("expected one attempt per configured key, got %v", usedKeys)
+	}
+}
+
 func TestGeminiRetriesNextModelAfterServiceUnavailable(t *testing.T) {
 	var requestedModels []string
 	provider := NewGeminiProvider([]string{"key-1"}, "gemini-3.8-flash")
