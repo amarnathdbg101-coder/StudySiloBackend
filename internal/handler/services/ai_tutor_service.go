@@ -83,7 +83,11 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 	}
 	modelName := req.Model
 	if modelName == "" {
-		modelName = "gemini-3.5-flash-lite"
+		if strings.EqualFold(strings.TrimSpace(provider), "openai") {
+			modelName = "gpt-4o-mini"
+		} else {
+			modelName = "gemini-3.5-flash-lite"
+		}
 	}
 
 	var answerText string

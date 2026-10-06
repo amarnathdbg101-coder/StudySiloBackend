@@ -23,24 +23,32 @@ type mockAITutorGenerator struct {
 	response          string
 	lastSystemPrompt  string
 	lastUserPrompt    string
+	provider          string
+	model             string
 	generateTextCalls int
 }
 
-func (m *mockAITutorGenerator) GenerateTextWithCustomKey(_ context.Context, _, _, _, systemPrompt, userPrompt string) (string, error) {
+func (m *mockAITutorGenerator) GenerateTextWithCustomKey(_ context.Context, _, provider, model, systemPrompt, userPrompt string) (string, error) {
 	m.generateTextCalls++
+	m.provider = provider
+	m.model = model
 	m.lastSystemPrompt = systemPrompt
 	m.lastUserPrompt = userPrompt
 	return m.response, nil
 }
 
-func (m *mockAITutorGenerator) GenerateVisionWithCustomKey(_ context.Context, _, _, _, systemPrompt, userPrompt string, _ []byte, _ string) (string, error) {
+func (m *mockAITutorGenerator) GenerateVisionWithCustomKey(_ context.Context, _, provider, model, systemPrompt, userPrompt string, _ []byte, _ string) (string, error) {
+	m.provider = provider
+	m.model = model
 	m.lastSystemPrompt = systemPrompt
 	m.lastUserPrompt = userPrompt
 	return m.response, nil
 }
 
-func (m *mockAITutorGenerator) GenerateTextStreamWithCustomKey(_ context.Context, _, _, _, systemPrompt, userPrompt string, onChunk func(string)) (string, error) {
+func (m *mockAITutorGenerator) GenerateTextStreamWithCustomKey(_ context.Context, _, provider, model, systemPrompt, userPrompt string, onChunk func(string)) (string, error) {
 	m.generateTextCalls++
+	m.provider = provider
+	m.model = model
 	m.lastSystemPrompt = systemPrompt
 	m.lastUserPrompt = userPrompt
 	middle := len(m.response) / 2
@@ -213,6 +221,25 @@ func TestAITutorService_SolveDoubt(t *testing.T) {
 	}
 	if len(greetingResp.FollowUpChips) != 0 {
 		t.Errorf("greeting should not receive academic follow-up chips: %v", greetingResp.FollowUpChips)
+	}
+}
+
+func TestAITutorService_UsesOpenAIDefaultModel(t *testing.T) {
+	generator := &mockAITutorGenerator{response: "OpenAI response"}
+	tutor := NewAITutorService(generator, nil)
+
+	response, err := tutor.SolveDoubt(context.Background(), "", dto.DoubtRequest{
+		Question: "Explain Newton's first law",
+		Provider: "openai",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error solving doubt: %v", err)
+	}
+	if generator.provider != "openai" || generator.model != "gpt-4o-mini" {
+		t.Fatalf("expected OpenAI with gpt-4o-mini, got provider=%q model=%q", generator.provider, generator.model)
+	}
+	if response.ActiveModel != "gpt-4o-mini" {
+		t.Fatalf("expected active model gpt-4o-mini, got %q", response.ActiveModel)
 	}
 }
 
