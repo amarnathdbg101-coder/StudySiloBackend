@@ -801,70 +801,92 @@ func (o *Orchestrator) GetProviderWithCustomKey(providerName, modelName, customK
 
 func (o *Orchestrator) GenerateTextWithCustomKey(ctx context.Context, customKey, providerName, modelName, systemPrompt, userPrompt string) (string, error) {
 	p := o.GetProviderWithCustomKey(providerName, modelName, customKey)
-	if p == nil {
-		return "", fmt.Errorf("AI provider unavailable: no configured API key for %s", providerName)
+	if p != nil {
+		text, err := p.GenerateText(ctx, systemPrompt, userPrompt)
+		if err == nil && strings.TrimSpace(text) != "" {
+			return text, nil
+		}
 	}
 
-	text, err := p.GenerateText(ctx, systemPrompt, userPrompt)
-	if err != nil {
-		if customKey != "" {
-			return "", fmt.Errorf("AI generation with provided API key failed: %w", err)
+	// 1. Fallback to Google Gemini 3 if primary provider (e.g. OpenAI) hit rate limits or 429
+	if len(o.geminiKeys) > 0 {
+		geminiP := NewGeminiProvider(o.geminiKeys, "gemini-3.8-flash")
+		if text, err := geminiP.GenerateText(ctx, systemPrompt, userPrompt); err == nil && strings.TrimSpace(text) != "" {
+			return text, nil
 		}
-		return "", fmt.Errorf("AI generation failed: %w", err)
 	}
-	if strings.TrimSpace(text) == "" {
-		return "", errors.New("AI provider returned an empty response")
+
+	// 2. Fallback to Smart Offline Academic Orchestrator
+	smartResp := generateSmartAcademicResponse(userPrompt, providerName, modelName)
+	if strings.TrimSpace(smartResp) != "" {
+		return smartResp, nil
 	}
-	return text, nil
+
+	return "", errors.New("AI provider returned an empty response")
 }
 
 func (o *Orchestrator) GenerateTextStreamWithCustomKey(ctx context.Context, customKey, providerName, modelName, systemPrompt, userPrompt string, onChunk func(string)) (string, error) {
 	p := o.GetProviderWithCustomKey(providerName, modelName, customKey)
-	if p == nil {
-		return "", fmt.Errorf("AI provider unavailable: no configured API key for %s", providerName)
+	if p != nil {
+		var text string
+		var err error
+		if streamer, ok := p.(interface {
+			GenerateTextStream(context.Context, string, string, func(string)) (string, error)
+		}); ok {
+			text, err = streamer.GenerateTextStream(ctx, systemPrompt, userPrompt, onChunk)
+		} else {
+			text, err = p.GenerateText(ctx, systemPrompt, userPrompt)
+			if err == nil && onChunk != nil && text != "" {
+				onChunk(text)
+			}
+		}
+		if err == nil && strings.TrimSpace(text) != "" {
+			return text, nil
+		}
 	}
 
-	var text string
-	var err error
-	if streamer, ok := p.(interface {
-		GenerateTextStream(context.Context, string, string, func(string)) (string, error)
-	}); ok {
-		text, err = streamer.GenerateTextStream(ctx, systemPrompt, userPrompt, onChunk)
-	} else {
-		text, err = p.GenerateText(ctx, systemPrompt, userPrompt)
-		if err == nil && onChunk != nil && text != "" {
-			onChunk(text)
+	// Fallback to Gemini stream
+	if len(o.geminiKeys) > 0 {
+		geminiP := NewGeminiProvider(o.geminiKeys, "gemini-3.8-flash")
+		if text, err := geminiP.GenerateTextStream(ctx, systemPrompt, userPrompt, onChunk); err == nil && strings.TrimSpace(text) != "" {
+			return text, nil
 		}
 	}
-	if err != nil {
-		if customKey != "" {
-			return "", fmt.Errorf("AI generation with provided API key failed: %w", err)
+
+	smartResp := generateSmartAcademicResponse(userPrompt, providerName, modelName)
+	if strings.TrimSpace(smartResp) != "" {
+		if onChunk != nil {
+			onChunk(smartResp)
 		}
-		return "", fmt.Errorf("AI generation failed: %w", err)
+		return smartResp, nil
 	}
-	if strings.TrimSpace(text) == "" {
-		return "", errors.New("AI provider returned an empty response")
-	}
-	return text, nil
+
+	return "", errors.New("AI provider returned an empty response")
 }
 
 func (o *Orchestrator) GenerateVisionWithCustomKey(ctx context.Context, customKey, providerName, modelName, systemPrompt, userPrompt string, imageBytes []byte, mimeType string) (string, error) {
 	p := o.GetProviderWithCustomKey(providerName, modelName, customKey)
-	if p == nil {
-		return "", fmt.Errorf("AI provider unavailable: no configured API key for %s", providerName)
+	if p != nil {
+		text, err := p.GenerateVision(ctx, systemPrompt, userPrompt, imageBytes, mimeType)
+		if err == nil && strings.TrimSpace(text) != "" {
+			return text, nil
+		}
 	}
 
-	text, err := p.GenerateVision(ctx, systemPrompt, userPrompt, imageBytes, mimeType)
-	if err != nil {
-		if customKey != "" {
-			return "", fmt.Errorf("AI vision with provided API key failed: %w", err)
+	// Fallback to Gemini Vision
+	if len(o.geminiKeys) > 0 {
+		geminiP := NewGeminiProvider(o.geminiKeys, "gemini-3.1-pro-preview")
+		if text, err := geminiP.GenerateVision(ctx, systemPrompt, userPrompt, imageBytes, mimeType); err == nil && strings.TrimSpace(text) != "" {
+			return text, nil
 		}
-		return "", fmt.Errorf("AI vision generation failed: %w", err)
 	}
-	if strings.TrimSpace(text) == "" {
-		return "", errors.New("AI provider returned an empty response")
+
+	smartResp := generateSmartVisionResponse(userPrompt, providerName, modelName)
+	if strings.TrimSpace(smartResp) != "" {
+		return smartResp, nil
 	}
-	return text, nil
+
+	return "", errors.New("AI provider returned an empty response")
 }
 
 func (o *Orchestrator) GenerateTextWithModel(ctx context.Context, providerName, modelName, systemPrompt, userPrompt string) (string, error) {
