@@ -14,6 +14,7 @@ import (
 	"goProjectStructure/internal/utils"
 
 	"github.com/go-chi/chi/v5"
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 	httpSwagger "github.com/swaggo/http-swagger/v2"
 	"go.uber.org/zap"
@@ -25,11 +26,14 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 
 	cfg := utils.MustLoad()
 
-	// Global Middlewares Pipeline (Order: RequestID -> Recoverer -> Security -> Logger -> CORS -> RateLimit)
+	// Global Middlewares Pipeline (Order: RequestID -> Recoverer -> Compress -> ResponseTime -> Security -> Logger -> Idempotency -> CORS -> RateLimit)
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer(logger))
+	r.Use(chimiddleware.Compress(5, "application/json", "text/html", "text/plain", "application/javascript", "text/css"))
+	r.Use(middleware.ResponseTimeHeader)
 	r.Use(middleware.SecurityHeaders)
-	r.Use(middleware.Logger)
+	r.Use(middleware.ZapLogger(logger))
+	r.Use(middleware.IdempotencyMiddleware(10 * time.Minute))
 	r.Use(middleware.CORS)
 	limiter := middleware.NewIPRateLimiter(100, time.Minute, cfg.TrustedProxies...)
 	r.Use(limiter.Middleware())
@@ -45,37 +49,42 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 	r.Get("/health", healthCtrl.Check)
 	r.Get("/health/live", healthCtrl.Live)
 	r.Get("/health/ready", healthCtrl.Ready)
+	r.Get("/health/metrics", healthCtrl.Metrics)
 
-	// 3. Domain Repositories (AI, Cognitive Profile, Chat & User)
+	// 3. Domain Repositories (AI, Cognitive Profile, Chat, User & Study Plan)
 	userRepo := repository.NewUserRepo(db, logger)
 	chatRepo := repository.NewChatRepo(db, logger)
 	cognitiveRepo := repository.NewCognitiveRepo(db, logger)
 	quizRepo := repository.NewQuizRepo(db, logger)
+	studyPlanRepo := repository.NewStudyPlanRepo(db, logger)
 
 	// 4. Domain & AI Services
 	aiOrchestrator := ai.NewOrchestrator(cfg.GeminiAPIKeys, cfg.OpenAIAPIKeys, cfg.ClaudeAPIKeys)
 	authService := services.NewAuthService(userRepo)
-	aiTutorService := services.NewAITutorService(aiOrchestrator, chatRepo)
+	aiTutorService := services.NewAITutorService(aiOrchestrator, chatRepo, cognitiveRepo)
 	notesAnalyzerService := services.NewNotesAnalyzerService(aiOrchestrator, nil)
 	diagramService := services.NewDiagramService(aiOrchestrator)
 	quizService := services.NewQuizService(quizRepo, cognitiveRepo, aiOrchestrator)
+	studyPlanService := services.NewStudyPlanService(studyPlanRepo, aiOrchestrator)
 
 	// 5. Domain Controllers
 	authCtrl := controller.NewAuthController(authService)
 	aiCtrl := controller.NewAIController(aiTutorService, notesAnalyzerService, diagramService)
 	quizCtrl := controller.NewQuizController(quizService)
+	studyPlanCtrl := controller.NewStudyPlanController(studyPlanService)
 
 	// 6. API v1 Pure AI Routes
 	r.Route("/api/v1", func(r chi.Router) {
 		// Public Auth routes
 		r.Route("/auth", func(r chi.Router) {
-			r.Post("/register", authCtrl.Register)
-			r.Post("/login", authCtrl.Login)
+			r.With(middleware.AuthRateLimiter.Middleware()).Post("/register", authCtrl.Register)
+			r.With(middleware.AuthRateLimiter.Middleware()).Post("/login", authCtrl.Login)
 
 			// Protected Auth routes
 			r.Group(func(r chi.Router) {
 				r.Use(middleware.JWTAuth(cfg.JwtSecret))
 				r.Get("/profile", authCtrl.Me)
+				r.Post("/logout", authCtrl.Logout)
 			})
 		})
 
@@ -87,6 +96,8 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 				r.Post("/doubt", aiCtrl.SolveDoubt)
 				r.Post("/doubt/stream", aiCtrl.SolveDoubtStream)
 				r.Post("/diagram", aiCtrl.GenerateDiagram)
+				r.Post("/flashcards/review", aiCtrl.ReviewFlashcard)
+				r.Post("/flashcards/generate", aiCtrl.GenerateFlashcardDeck)
 			})
 
 			// Strictly Protected AI endpoints (Requires JWT)
@@ -117,6 +128,21 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 			r.With(middleware.OptionalJWTAuth(cfg.JwtSecret)).Get("/", quizCtrl.GetCognitiveProfile)
 			r.With(middleware.JWTAuth(cfg.JwtSecret)).Put("/", quizCtrl.UpdateCognitiveProfile)
 		})
+
+		// Study Planner & Spaced Repetition Task Roadmap
+		r.Route("/study-plans", func(r chi.Router) {
+			r.With(middleware.OptionalJWTAuth(cfg.JwtSecret)).Post("/generate", studyPlanCtrl.GenerateAIPlan)
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.JWTAuth(cfg.JwtSecret))
+				r.Get("/", studyPlanCtrl.List)
+				r.Post("/", studyPlanCtrl.Create)
+				r.Patch("/{id}", studyPlanCtrl.Update)
+				r.Delete("/{id}", studyPlanCtrl.Delete)
+			})
+		})
+
+		// Focus Study Minutes & Streak Tracker
+		r.With(middleware.JWTAuth(cfg.JwtSecret)).Post("/profile/study-time", studyPlanCtrl.RecordStudyTime)
 	})
 
 	return r

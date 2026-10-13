@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"goProjectStructure/internal/handler/model"
+	"goProjectStructure/internal/reuse"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -28,6 +30,14 @@ func NewCognitiveRepo(db *pgxpool.Pool, logger *zap.Logger) CognitiveRepository 
 }
 
 func (r *cognitiveRepo) GetByUserID(ctx context.Context, userID string) (*model.CognitiveProfile, error) {
+	cacheKey := "cognitive_profile:" + userID
+	cache := reuse.GetCache()
+	if val, found := cache.Get(cacheKey); found {
+		if p, ok := val.(*model.CognitiveProfile); ok {
+			return p, nil
+		}
+	}
+
 	query := `
 		SELECT user_id, target_exam, academic_level, weak_topics, strong_topics, exam_traps, study_streak_days, total_study_minutes, total_quizzes_taken, average_quiz_score, last_active_at, updated_at
 		FROM cognitive_profiles
@@ -62,6 +72,8 @@ func (r *cognitiveRepo) GetByUserID(ctx context.Context, userID string) (*model.
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cognitive profile: %w", err)
 	}
+
+	cache.Set(cacheKey, p, 5*time.Minute)
 	return p, nil
 }
 
@@ -85,12 +97,16 @@ func (r *cognitiveRepo) Upsert(ctx context.Context, profile *model.CognitiveProf
 			updated_at = NOW()
 		RETURNING last_active_at, updated_at
 	`
-	return r.db.QueryRow(ctx, query,
+	err := r.db.QueryRow(ctx, query,
 		profile.UserID, profile.TargetExam, profile.AcademicLevel,
 		profile.WeakTopics, profile.StrongTopics, profile.ExamTraps,
 		profile.StudyStreakDays, profile.TotalStudyMinutes, profile.TotalQuizzesTaken,
 		profile.AverageQuizScore,
 	).Scan(&profile.LastActiveAt, &profile.UpdatedAt)
+	if err == nil {
+		reuse.GetCache().Set("cognitive_profile:"+profile.UserID, profile, 5*time.Minute)
+	}
+	return err
 }
 
 func (r *cognitiveRepo) RecordQuizResult(
@@ -159,5 +175,6 @@ func (r *cognitiveRepo) RecordQuizResult(
 	if err != nil {
 		return nil, fmt.Errorf("failed to record quiz result: %w", err)
 	}
+	reuse.GetCache().Set("cognitive_profile:"+userID, updated, 5*time.Minute)
 	return updated, nil
 }

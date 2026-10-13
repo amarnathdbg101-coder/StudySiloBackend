@@ -5,13 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"net/http"
+	"strings"
+	"time"
+
 	"goProjectStructure/internal/handler/dto"
 	"goProjectStructure/internal/handler/services"
 	"goProjectStructure/internal/middleware"
 	"goProjectStructure/internal/reuse"
-	"log"
-	"net/http"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -381,4 +383,91 @@ func (c *AIController) GenerateDiagram(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reuse.Success(w, "diagram generated successfully", resp)
+}
+
+// ReviewFlashcard calculates the next Spaced Repetition interval using SuperMemo SM-2 algorithm
+func (c *AIController) ReviewFlashcard(w http.ResponseWriter, r *http.Request) {
+	var req dto.FlashcardReviewRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		reuse.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := reuse.ValidateStruct(req); err != nil {
+		reuse.Error(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+
+	item := reuse.SM2Item{
+		Repetitions: req.Repetitions,
+		Interval:    req.Interval,
+		EaseFactor:  req.EaseFactor,
+	}
+
+	nextSM2 := reuse.CalculateSM2(item, req.Quality)
+
+	resp := dto.FlashcardReviewResponse{
+		CardID:      req.CardID,
+		NextReview:  nextSM2.NextReview.Format(time.RFC3339),
+		Interval:    nextSM2.Interval,
+		EaseFactor:  nextSM2.EaseFactor,
+		Repetitions: nextSM2.Repetitions,
+	}
+
+	reuse.Success(w, "flashcard spaced repetition review calculated", resp)
+}
+
+// GenerateFlashcardDeck generates an Anki-compatible Active Recall Flashcard deck from a topic
+func (c *AIController) GenerateFlashcardDeck(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	userID := "guest-user"
+	if claims != nil && claims.UserID != "" {
+		userID = claims.UserID
+	}
+
+	var req dto.GenerateFlashcardDeckRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		reuse.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := reuse.ValidateStruct(req); err != nil {
+		reuse.Error(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+
+	analysisReq := dto.NotesAnalysisRequest{
+		Content:           req.Topic,
+		IncludeFlashcards: true,
+		Provider:          req.Provider,
+		Model:             req.Model,
+	}
+
+	analysis, err := c.notesAnalyzerService.AnalyzeNotes(r.Context(), userID, analysisReq)
+	if err != nil {
+		reuse.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	cards := make([]dto.FlashcardDeckCard, 0, len(analysis.Flashcards))
+	for i, f := range analysis.Flashcards {
+		cards = append(cards, dto.FlashcardDeckCard{
+			ID:          fmt.Sprintf("card-%d", i+1),
+			Front:       f.Front,
+			Back:        f.Back,
+			Difficulty:  f.Difficulty,
+			Topic:       f.Topic,
+			Repetitions: 0,
+			Interval:    1,
+			EaseFactor:  2.5,
+		})
+	}
+
+	resp := dto.GenerateFlashcardDeckResponse{
+		Topic:      req.Topic,
+		TotalCards: len(cards),
+		Cards:      cards,
+	}
+
+	reuse.Success(w, "active recall flashcard deck generated successfully", resp)
 }

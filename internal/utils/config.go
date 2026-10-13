@@ -65,6 +65,11 @@ func validateProductionConfig(env, dbURL, jwtSecret, allowedOrigins string) erro
 	if len(origins) == 0 {
 		return fmt.Errorf("ALLOWED_ORIGINS must include at least one explicit origin when ENV=production")
 	}
+	for _, o := range origins {
+		if o == "*" {
+			return fmt.Errorf("ALLOWED_ORIGINS cannot contain wildcard '*' when ENV=production")
+		}
+	}
 
 	return nil
 }

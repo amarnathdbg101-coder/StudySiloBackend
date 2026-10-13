@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"net/http"
+	"runtime"
 	"time"
 
 	"goProjectStructure/internal/reuse"
@@ -66,5 +67,39 @@ func (c *HealthController) Ready(w http.ResponseWriter, r *http.Request) {
 	reuse.Success(w, "Server and database are ready", map[string]interface{}{
 		"status":   "ready",
 		"database": "connected",
+	})
+}
+
+// Metrics returns detailed runtime memory, goroutine count, and database pool telemetry
+func (c *HealthController) Metrics(w http.ResponseWriter, r *http.Request) {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
+	dbStats := map[string]interface{}{
+		"status": "disabled",
+	}
+
+	if c.db != nil {
+		stat := c.db.Stat()
+		dbStats = map[string]interface{}{
+			"status":         "connected",
+			"acquired_conns": stat.AcquiredConns(),
+			"idle_conns":     stat.IdleConns(),
+			"total_conns":    stat.TotalConns(),
+			"max_conns":      stat.MaxConns(),
+		}
+	}
+
+	reuse.Success(w, "System metrics telemetry", map[string]interface{}{
+		"goroutines": runtime.NumGoroutine(),
+		"memory": map[string]interface{}{
+			"alloc_mb":      m.Alloc / 1024 / 1024,
+			"sys_mb":        m.Sys / 1024 / 1024,
+			"heap_alloc_mb": m.HeapAlloc / 1024 / 1024,
+			"num_gc_cycles": m.NumGC,
+		},
+		"db_pool":   dbStats,
+		"uptime":    time.Since(startTime).String(),
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
 	})
 }

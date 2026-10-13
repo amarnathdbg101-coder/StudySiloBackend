@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 
+	"goProjectStructure/internal/reuse"
+
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -39,6 +41,11 @@ func JWTAuth(secret string) func(http.Handler) http.Handler {
 			}
 
 			tokenStr := parts[1]
+			if reuse.IsTokenRevoked(tokenStr) {
+				http.Error(w, `{"success":false,"error":"token has been revoked"}`, http.StatusUnauthorized)
+				return
+			}
+
 			claims := &Claims{}
 
 			token, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
@@ -87,6 +94,11 @@ func OptionalJWTAuth(secret string) func(http.Handler) http.Handler {
 			}
 
 			tokenStr := parts[1]
+			if reuse.IsTokenRevoked(tokenStr) {
+				http.Error(w, `{"success":false,"error":"token has been revoked"}`, http.StatusUnauthorized)
+				return
+			}
+
 			claims := &Claims{}
 
 			token, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {

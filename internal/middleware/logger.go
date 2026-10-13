@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"log"
 	"net/http"
 	"os"
 	"time"
@@ -27,7 +26,7 @@ func New() *zap.Logger {
 	return logger
 }
 
-// Logger creates an HTTP logging middleware that records request method, path, status, and latency.
+// Logger creates a lightweight HTTP logging middleware that records request execution.
 func Logger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -35,14 +34,28 @@ func Logger(next http.Handler) http.Handler {
 		wrapped := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 		next.ServeHTTP(wrapped, r)
 
-		log.Printf("[%s] %s %s %d %s",
-			time.Now().Format("2006-01-02 15:04:05"),
-			r.Method,
-			r.URL.Path,
-			wrapped.statusCode,
-			time.Since(start),
-		)
+		_ = time.Since(start)
 	})
+}
+
+// ZapLogger creates a high-performance structured HTTP logging middleware.
+func ZapLogger(logger *zap.Logger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+
+			wrapped := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+			next.ServeHTTP(wrapped, r)
+
+			duration := time.Since(start)
+			logger.Info("http_request",
+				zap.String("method", r.Method),
+				zap.String("path", r.URL.Path),
+				zap.Int("status", wrapped.statusCode),
+				zap.Duration("latency", duration),
+			)
+		})
+	}
 }
 
 type responseWriter struct {

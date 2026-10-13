@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
+
 	"goProjectStructure/internal/handler/dto"
 	"goProjectStructure/internal/handler/model"
 	"goProjectStructure/internal/handler/repository"
@@ -81,7 +83,21 @@ func (s *AuthService) Login(ctx context.Context, req dto.LoginRequest) (*dto.Aut
 	}, nil
 }
 
-// GetProfile retrieves the profile for the current authenticated user
+// GetProfile retrieves the profile for the current authenticated user with in-memory caching
 func (s *AuthService) GetProfile(ctx context.Context, userID string) (*model.User, error) {
-	return s.userRepo.FindByID(ctx, userID)
+	cacheKey := "user_profile:" + userID
+	cache := reuse.GetCache()
+	if val, found := cache.Get(cacheKey); found {
+		if u, ok := val.(*model.User); ok {
+			return u, nil
+		}
+	}
+
+	user, err := s.userRepo.FindByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	cache.Set(cacheKey, user, 3*time.Minute)
+	return user, nil
 }

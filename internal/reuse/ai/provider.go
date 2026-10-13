@@ -83,14 +83,23 @@ func getGeminiCandidates(primary string) []string {
 	return list
 }
 
+var fastAIHTTPClient = &http.Client{
+	Timeout: 45 * time.Second,
+	Transport: &http.Transport{
+		MaxIdleConns:        200,
+		MaxIdleConnsPerHost: 50,
+		IdleConnTimeout:     90 * time.Second,
+		TLSHandshakeTimeout: 10 * time.Second,
+		ForceAttemptHTTP2:   true,
+	},
+}
+
 func NewGeminiProvider(keys []string, model string) *GeminiProvider {
 	model = normalizeGeminiModel(model)
 	return &GeminiProvider{
-		rotator: NewKeyRotator(keys),
-		httpClient: &http.Client{
-			Timeout: 45 * time.Second,
-		},
-		model: model,
+		rotator:    NewKeyRotator(keys),
+		httpClient: fastAIHTTPClient,
+		model:      model,
 	}
 }
 
@@ -534,11 +543,9 @@ func NewOpenAIProvider(keys []string, model string) *OpenAIProvider {
 		model = "gpt-4o-mini"
 	}
 	return &OpenAIProvider{
-		rotator: NewKeyRotator(keys),
-		httpClient: &http.Client{
-			Timeout: 45 * time.Second,
-		},
-		model: model,
+		rotator:    NewKeyRotator(keys),
+		httpClient: fastAIHTTPClient,
+		model:      model,
 	}
 }
 

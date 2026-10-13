@@ -9,29 +9,49 @@ import (
 	"time"
 )
 
+const numRateLimitShards = 64
+
 type clientRecord struct {
 	count     int
 	windowEnd time.Time
 }
 
-// IPRateLimiter tracks request counts per client IP in memory
+type rateLimitShard struct {
+	mu      sync.RWMutex
+	records map[string]*clientRecord
+}
+
+// IPRateLimiter tracks request counts per client IP in memory using sharded locks for low contention
 type IPRateLimiter struct {
-	mu             sync.RWMutex
-	records        map[string]*clientRecord
+	shards         [numRateLimitShards]*rateLimitShard
 	limit          int
 	window         time.Duration
 	stopCleanup    chan struct{}
 	trustedProxies []*net.IPNet
 }
 
+func getShardIndex(ip string) uint32 {
+	var hash uint32 = 2166136261
+	for i := 0; i < len(ip); i++ {
+		hash ^= uint32(ip[i])
+		hash *= 16777619
+	}
+	return hash % numRateLimitShards
+}
+
 // NewIPRateLimiter creates a new rate limiter with background garbage collection
 func NewIPRateLimiter(limit int, window time.Duration, trustedProxyCIDRs ...string) *IPRateLimiter {
 	limiter := &IPRateLimiter{
-		records:        make(map[string]*clientRecord),
 		limit:          limit,
 		window:         window,
 		stopCleanup:    make(chan struct{}),
 		trustedProxies: parseTrustedProxyCIDRs(trustedProxyCIDRs),
+	}
+
+	for i := 0; i < numRateLimitShards; i++ {
+		limiter.shards[i] = &rateLimitShard{
+			records: make(map[string]*clientRecord),
+		}
 	}
 
 	go func() {
@@ -87,14 +107,16 @@ func (l *IPRateLimiter) isTrustedProxy(ip net.IP) bool {
 }
 
 func (l *IPRateLimiter) cleanup() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
 	now := time.Now()
-	for ip, rec := range l.records {
-		if now.After(rec.windowEnd) {
-			delete(l.records, ip)
+	for i := 0; i < numRateLimitShards; i++ {
+		shard := l.shards[i]
+		shard.mu.Lock()
+		for ip, rec := range shard.records {
+			if now.After(rec.windowEnd) {
+				delete(shard.records, ip)
+			}
 		}
+		shard.mu.Unlock()
 	}
 }
 
@@ -105,18 +127,21 @@ func (l *IPRateLimiter) Stop() {
 
 // CheckAndAllow checks if the given IP is within the rate limit and returns headers metadata
 func (l *IPRateLimiter) CheckAndAllow(ip string) (allowed bool, remaining int, resetInSec int64) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	shardIdx := getShardIndex(ip)
+	shard := l.shards[shardIdx]
+
+	shard.mu.Lock()
+	defer shard.mu.Unlock()
 
 	now := time.Now()
-	rec, exists := l.records[ip]
+	rec, exists := shard.records[ip]
 
 	if !exists || now.After(rec.windowEnd) {
 		rec = &clientRecord{
 			count:     1,
 			windowEnd: now.Add(l.window),
 		}
-		l.records[ip] = rec
+		shard.records[ip] = rec
 		remaining = l.limit - 1
 		resetInSec = int64(time.Until(rec.windowEnd).Seconds())
 		if resetInSec < 0 {

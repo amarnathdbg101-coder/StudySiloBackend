@@ -81,6 +81,55 @@ type NotesAnalysisResponse struct {
 	CheatSheet string          `json:"cheat_sheet"`
 }
 
+type FlashcardReviewRequest struct {
+	CardID      string  `json:"card_id" validate:"required"`
+	Quality     int     `json:"quality" validate:"min=0,max=5"`
+	Repetitions int     `json:"repetitions"`
+	Interval    int     `json:"interval"`
+	EaseFactor  float64 `json:"ease_factor"`
+}
+
+type FlashcardReviewResponse struct {
+	CardID      string  `json:"card_id"`
+	NextReview  string  `json:"next_review"`
+	Interval    int     `json:"interval_days"`
+	EaseFactor  float64 `json:"ease_factor"`
+	Repetitions int     `json:"repetitions"`
+}
+
+type GenerateFlashcardDeckRequest struct {
+	Topic     string `json:"topic" validate:"required,min=2"`
+	CardCount int    `json:"card_count" validate:"omitempty,min=3,max=20"`
+	Provider  string `json:"provider"`
+	Model     string `json:"model"`
+}
+
+type FlashcardDeckCard struct {
+	ID          string  `json:"id"`
+	Front       string  `json:"front"`
+	Back        string  `json:"back"`
+	Difficulty  string  `json:"difficulty"`
+	Topic       string  `json:"topic"`
+	Repetitions int     `json:"repetitions"`
+	Interval    int     `json:"interval_days"`
+	EaseFactor  float64 `json:"ease_factor"`
+}
+
+type GenerateFlashcardDeckResponse struct {
+	Topic      string              `json:"topic"`
+	TotalCards int                 `json:"total_cards"`
+	Cards      []FlashcardDeckCard `json:"cards"`
+}
+
+type StudentMistakesResponse struct {
+	TargetExam    string   `json:"target_exam"`
+	AcademicLevel string   `json:"academic_level"`
+	WeakTopics    []string `json:"weak_topics"`
+	ExamTraps     []string `json:"exam_traps"`
+	QuizAvgScore  float64  `json:"quiz_average_score"`
+	TotalQuizzes  int      `json:"total_quizzes_taken"`
+}
+
 // ---------------------------------------------------------------------------
 // Diagram & Mind Map DTOs (Flutter CustomPainter / CanvasKit compatible)
 // ---------------------------------------------------------------------------

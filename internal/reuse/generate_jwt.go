@@ -45,3 +45,23 @@ func ParseTokenForRefresh(tokenStr string) (string, error) {
 
 	return userID, nil
 }
+
+// RevokeToken marks a JWT token string as revoked in memory until TTL expires
+func RevokeToken(tokenStr string, ttl time.Duration) {
+	if tokenStr == "" {
+		return
+	}
+	if ttl <= 0 {
+		ttl = 30 * 24 * time.Hour
+	}
+	GetCache().Set("revoked_token:"+tokenStr, true, ttl)
+}
+
+// IsTokenRevoked returns true if the JWT token has been explicitly revoked via logout
+func IsTokenRevoked(tokenStr string) bool {
+	if tokenStr == "" {
+		return false
+	}
+	_, found := GetCache().Get("revoked_token:" + tokenStr)
+	return found
+}

@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
+	"time"
+
 	"goProjectStructure/internal/handler/dto"
 	"goProjectStructure/internal/handler/repository"
 	"goProjectStructure/internal/handler/services"
@@ -79,4 +82,17 @@ func (c *AuthController) Me(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reuse.Success(w, "Profile fetched", user)
+}
+
+func (c *AuthController) Logout(w http.ResponseWriter, r *http.Request) {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader != "" {
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) == 2 && strings.EqualFold(parts[0], "bearer") {
+			tokenStr := parts[1]
+			reuse.RevokeToken(tokenStr, 30*24*time.Hour)
+		}
+	}
+
+	reuse.Success(w, "logged out successfully", nil)
 }
