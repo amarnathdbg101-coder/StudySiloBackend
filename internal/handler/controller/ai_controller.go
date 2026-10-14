@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"goProjectStructure/internal/handler/dto"
+	"goProjectStructure/internal/handler/repository"
 	"goProjectStructure/internal/handler/services"
 	"goProjectStructure/internal/middleware"
 	"goProjectStructure/internal/reuse"
@@ -71,10 +74,8 @@ func (c *AIController) SolveDoubt(w http.ResponseWriter, r *http.Request) {
 	resp, err := c.aiTutorService.SolveDoubt(r.Context(), userID, req)
 	if err != nil {
 		log.Printf("AI doubt generation failed: %v", err)
-		reuse.JSON(w, http.StatusServiceUnavailable, reuse.Response{
-			Success: false,
-			Error:   publicAIError(err, req.APIKey),
-		})
+		code, userMsg := parseAIError(err, req.APIKey)
+		reuse.ErrorWithCode(w, http.StatusServiceUnavailable, code, userMsg)
 		return
 	}
 
@@ -89,6 +90,7 @@ type aiTutorStreamEvent struct {
 	Type               string   `json:"type"`
 	Text               string   `json:"text,omitempty"`
 	Message            string   `json:"message,omitempty"`
+	ErrorCode          string   `json:"error_code,omitempty"`
 	SessionID          string   `json:"session_id,omitempty"`
 	SessionTitle       string   `json:"session_title,omitempty"`
 	AssistantMessageID string   `json:"assistant_message_id,omitempty"`
@@ -136,14 +138,45 @@ func (c *AIController) SolveDoubtStream(w http.ResponseWriter, r *http.Request) 
 	_, _ = fmt.Fprint(w, ": connected\n\n")
 	flusher.Flush()
 
+	// Concurrency protection: Mutex ensures heartbeat ticker and stream tokens
+	// do not write to ResponseWriter concurrently (prevents Go data races).
+	var writeMu sync.Mutex
+
+	writeRaw := func(format string, a ...interface{}) {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		_, _ = fmt.Fprintf(w, format, a...)
+		flusher.Flush()
+	}
+
 	writeEvent := func(event aiTutorStreamEvent) {
 		payload, err := json.Marshal(event)
 		if err != nil {
 			return
 		}
-		_, _ = fmt.Fprintf(w, "data: %s\n\n", payload)
-		flusher.Flush()
+		writeRaw("data: %s\n\n", payload)
 	}
+
+	// Active Heartbeat Ticker: Sends an SSE comment every 5 seconds.
+	// W3C SSE standard: Lines starting with ":" are comments and ignored by clients.
+	// This prevents Cloudflare, Render, and Mobile network timeouts during long generations.
+	heartbeatDone := make(chan struct{})
+	defer close(heartbeatDone)
+
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-heartbeatDone:
+				return
+			case <-ticker.C:
+				writeRaw(": keep-alive\n\n")
+			}
+		}
+	}()
 
 	var response *dto.DoubtResponse
 	var err error
@@ -159,7 +192,8 @@ func (c *AIController) SolveDoubtStream(w http.ResponseWriter, r *http.Request) 
 	}
 	if err != nil {
 		log.Printf("AI doubt streaming failed: %v", err)
-		writeEvent(aiTutorStreamEvent{Type: "error", Message: publicAIError(err, req.APIKey)})
+		code, userMsg := parseAIError(err, req.APIKey)
+		writeEvent(aiTutorStreamEvent{Type: "error", Message: userMsg, ErrorCode: code})
 		return
 	}
 	writeEvent(aiTutorStreamEvent{
@@ -171,9 +205,10 @@ func (c *AIController) SolveDoubtStream(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-func publicAIError(err error, apiKey string) string {
+// parseAIError categorizes AI errors into machine-readable error codes and safe student messages
+func parseAIError(err error, apiKey string) (string, string) {
 	if err == nil {
-		return "Unknown AI error occurred."
+		return "UNKNOWN_ERROR", "Unknown AI error occurred."
 	}
 	msg := strings.TrimSpace(err.Error())
 
@@ -184,22 +219,27 @@ func publicAIError(err error, apiKey string) string {
 	lower := strings.ToLower(msg)
 
 	if strings.Contains(lower, "api_key_invalid") || strings.Contains(lower, "api key not valid") || strings.Contains(lower, "invalid_api_key") || strings.Contains(lower, "incorrect api key") {
-		return "Invalid API Key: The API key provided is invalid or inactive. Please check your Gemini or OpenAI API key in settings or .env file."
+		return "AI_KEY_INVALID", "Invalid API Key: The API key provided is invalid or inactive. Please check your Gemini or OpenAI API key in settings or .env file."
 	}
 
 	if strings.Contains(lower, "resource_exhausted") || strings.Contains(lower, "rate limit") || strings.Contains(lower, "429") || strings.Contains(lower, "quota") {
-		return "Quota / Rate Limit Exceeded: Your API key has exceeded its rate limit or free quota. Please wait 1 minute or use a new key."
+		return "AI_QUOTA_EXCEEDED", "Quota / Rate Limit Exceeded: Your API key has exceeded its rate limit or free quota. Please wait 1 minute or use a new key."
 	}
 
 	if strings.Contains(lower, "no configured api key") || strings.Contains(lower, "no keys configured") {
-		return "No API Key Configured: Neither GEMINI_API_KEYS nor OPENAI_API_KEYS are set in server environment, and no custom API key was passed in request."
+		return "AI_NO_KEY_CONFIGURED", "No API Key Configured: Neither GEMINI_API_KEYS nor OPENAI_API_KEYS are set in server environment, and no custom API key was passed in request."
 	}
 
 	if strings.Contains(lower, "not found") || strings.Contains(lower, "404") {
-		return fmt.Sprintf("AI Model Not Found (404): The requested AI model ID was not found on provider API. Details: %s", truncateError(msg, 300))
+		return "AI_MODEL_NOT_FOUND", fmt.Sprintf("AI Model Not Found (404): The requested AI model ID was not found on provider API. Details: %s", truncateError(msg, 300))
 	}
 
-	return "AI Generation Error: " + truncateError(msg, 400)
+	return "AI_GENERATION_FAILED", "AI Generation Error: " + truncateError(msg, 400)
+}
+
+func publicAIError(err error, apiKey string) string {
+	_, msg := parseAIError(err, apiKey)
+	return msg
 }
 
 func truncateError(s string, max int) string {
@@ -421,6 +461,34 @@ func (c *AIController) GenerateDiagram(w http.ResponseWriter, r *http.Request) {
 	reuse.Success(w, "diagram generated successfully", resp)
 }
 
+// ExpandMindMapNode generates deep-dive sub-branches for a specific node in an interactive canvas
+func (c *AIController) ExpandMindMapNode(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	userID := ""
+	if claims != nil {
+		userID = claims.UserID
+	}
+
+	var req dto.ExpandNodeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		reuse.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := reuse.ValidateStruct(req); err != nil {
+		reuse.Error(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+
+	resp, err := c.diagramService.ExpandNode(r.Context(), userID, req)
+	if err != nil {
+		reuse.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	reuse.Success(w, "node expanded successfully", resp)
+}
+
 // ReviewFlashcard calculates the next Spaced Repetition interval using SuperMemo SM-2 algorithm
 func (c *AIController) ReviewFlashcard(w http.ResponseWriter, r *http.Request) {
 	var req dto.FlashcardReviewRequest
@@ -507,3 +575,186 @@ func (c *AIController) GenerateFlashcardDeck(w http.ResponseWriter, r *http.Requ
 
 	reuse.Success(w, "active recall flashcard deck generated successfully", resp)
 }
+
+// SaveMindMap saves a generated or customized visual mind map into PostgreSQL
+func (c *AIController) SaveMindMap(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	if claims == nil {
+		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
+		return
+	}
+
+	var req dto.SaveMindMapRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		reuse.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := reuse.ValidateStruct(req); err != nil {
+		reuse.Error(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+
+	resp, err := c.diagramService.SaveMindMap(r.Context(), claims.UserID, req)
+	if err != nil {
+		reuse.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	reuse.Success(w, "mind map saved successfully", resp)
+}
+
+// ListMindMaps returns all saved mind maps for the authenticated user
+func (c *AIController) ListMindMaps(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	if claims == nil {
+		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
+		return
+	}
+
+	search := r.URL.Query().Get("search")
+	limit := 20
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+	offset := 0
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	maps, total, err := c.diagramService.ListMindMaps(r.Context(), claims.UserID, search, limit, offset)
+	if err != nil {
+		reuse.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	reuse.Success(w, "mind maps retrieved successfully", map[string]interface{}{
+		"items":  maps,
+		"total":  total,
+		"limit":  limit,
+		"offset": offset,
+	})
+}
+
+// GetMindMap retrieves a specific saved mind map by its ID
+func (c *AIController) GetMindMap(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	if claims == nil {
+		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		reuse.Error(w, http.StatusBadRequest, "mind map id required")
+		return
+	}
+
+	resp, err := c.diagramService.GetMindMap(r.Context(), claims.UserID, id)
+	if err != nil {
+		if errors.Is(err, repository.ErrMindMapNotFound) {
+			reuse.Error(w, http.StatusNotFound, "mind map not found")
+			return
+		}
+		reuse.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	reuse.Success(w, "mind map retrieved successfully", resp)
+}
+
+// UpdateMindMap updates title, canvas data, or pin status of a saved mind map
+func (c *AIController) UpdateMindMap(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	if claims == nil {
+		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		reuse.Error(w, http.StatusBadRequest, "mind map id required")
+		return
+	}
+
+	var req dto.UpdateMindMapRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		reuse.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := reuse.ValidateStruct(req); err != nil {
+		reuse.Error(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+
+	resp, err := c.diagramService.UpdateMindMap(r.Context(), claims.UserID, id, req)
+	if err != nil {
+		if errors.Is(err, repository.ErrMindMapNotFound) {
+			reuse.Error(w, http.StatusNotFound, "mind map not found")
+			return
+		}
+		reuse.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	reuse.Success(w, "mind map updated successfully", resp)
+}
+
+// DeleteMindMap deletes a saved mind map
+func (c *AIController) DeleteMindMap(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	if claims == nil {
+		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		reuse.Error(w, http.StatusBadRequest, "mind map id required")
+		return
+	}
+
+	if err := c.diagramService.DeleteMindMap(r.Context(), claims.UserID, id); err != nil {
+		if errors.Is(err, repository.ErrMindMapNotFound) {
+			reuse.Error(w, http.StatusNotFound, "mind map not found")
+			return
+		}
+		reuse.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	reuse.Success(w, "mind map deleted successfully", nil)
+}
+
+// TogglePinMindMap toggles pinned state for quick access
+func (c *AIController) TogglePinMindMap(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	if claims == nil {
+		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		reuse.Error(w, http.StatusBadRequest, "mind map id required")
+		return
+	}
+
+	resp, err := c.diagramService.TogglePinMindMap(r.Context(), claims.UserID, id)
+	if err != nil {
+		if errors.Is(err, repository.ErrMindMapNotFound) {
+			reuse.Error(w, http.StatusNotFound, "mind map not found")
+			return
+		}
+		reuse.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	reuse.Success(w, "mind map pin toggled successfully", resp)
+}
+

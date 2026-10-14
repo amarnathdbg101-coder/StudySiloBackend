@@ -28,6 +28,7 @@ type AcademicService interface {
 	CreateNote(ctx context.Context, userID string, req dto.CreateNoteRequest) (*model.Note, error)
 	GetNote(ctx context.Context, id, userID string) (*model.Note, error)
 	ListNotes(ctx context.Context, userID string, courseID, folderID *string, tag *string) ([]*model.Note, error)
+	SearchNotes(ctx context.Context, userID, searchTerm string, limit int) ([]*model.Note, error)
 	UpdateNote(ctx context.Context, id, userID string, req dto.UpdateNoteRequest) (*model.Note, error)
 	DeleteNote(ctx context.Context, id, userID string) error
 }
@@ -306,6 +307,10 @@ func (s *academicService) UpdateNote(ctx context.Context, id, userID string, req
 		return nil, err
 	}
 	return n, nil
+}
+
+func (s *academicService) SearchNotes(ctx context.Context, userID, searchTerm string, limit int) ([]*model.Note, error) {
+	return s.noteRepo.Search(ctx, userID, searchTerm, limit)
 }
 
 func (s *academicService) DeleteNote(ctx context.Context, id, userID string) error {

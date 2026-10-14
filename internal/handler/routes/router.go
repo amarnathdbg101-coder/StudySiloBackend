@@ -62,27 +62,38 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 	r.Get("/health/ready", healthCtrl.Ready)
 	r.Get("/health/metrics", healthCtrl.Metrics)
 
-	// 3. Domain Repositories (AI, Cognitive Profile, Chat, User & Study Plan)
+	// 3. Domain Repositories (AI, Cognitive Profile, Chat, User, Academic & Sync)
 	userRepo := repository.NewUserRepo(db, logger)
 	chatRepo := repository.NewChatRepo(db, logger)
 	cognitiveRepo := repository.NewCognitiveRepo(db, logger)
 	quizRepo := repository.NewQuizRepo(db, logger)
 	studyPlanRepo := repository.NewStudyPlanRepo(db, logger)
+	courseRepo := repository.NewCourseRepo(db, logger)
+	folderRepo := repository.NewFolderRepo(db, logger)
+	noteRepo := repository.NewNoteRepo(db, logger)
+	syncRepo := repository.NewSyncRepo(db, logger)
+	mindMapRepo := repository.NewMindMapRepo(db, logger)
 
 	// 4. Domain & AI Services
 	aiOrchestrator := ai.NewOrchestrator(cfg.GeminiAPIKeys, cfg.OpenAIAPIKeys, cfg.ClaudeAPIKeys)
 	authService := services.NewAuthService(userRepo)
 	aiTutorService := services.NewAITutorService(aiOrchestrator, chatRepo, cognitiveRepo)
-	notesAnalyzerService := services.NewNotesAnalyzerService(aiOrchestrator, nil)
-	diagramService := services.NewDiagramService(aiOrchestrator)
+	notesAnalyzerService := services.NewNotesAnalyzerService(aiOrchestrator, noteRepo)
+	diagramService := services.NewDiagramService(aiOrchestrator, mindMapRepo)
 	quizService := services.NewQuizService(quizRepo, cognitiveRepo, aiOrchestrator)
 	studyPlanService := services.NewStudyPlanService(studyPlanRepo, aiOrchestrator)
+	academicService := services.NewAcademicService(courseRepo, folderRepo, noteRepo)
+	syncService := services.NewSyncService(syncRepo)
+	pdfExportService := services.NewPDFExportService(noteRepo, quizRepo)
 
 	// 5. Domain Controllers
 	authCtrl := controller.NewAuthController(authService)
 	aiCtrl := controller.NewAIController(aiTutorService, notesAnalyzerService, diagramService)
 	quizCtrl := controller.NewQuizController(quizService)
 	studyPlanCtrl := controller.NewStudyPlanController(studyPlanService)
+	academicCtrl := controller.NewAcademicController(academicService)
+	syncCtrl := controller.NewSyncController(syncService)
+	exportCtrl := controller.NewExportController(pdfExportService)
 
 	// 6. API v1 Pure AI Routes
 	r.Route("/api/v1", func(r chi.Router) {
@@ -107,6 +118,7 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 				r.Post("/doubt", aiCtrl.SolveDoubt)
 				r.Post("/doubt/stream", aiCtrl.SolveDoubtStream)
 				r.Post("/diagram", aiCtrl.GenerateDiagram)
+				r.Post("/diagram/expand-node", aiCtrl.ExpandMindMapNode)
 				r.Post("/flashcards/review", aiCtrl.ReviewFlashcard)
 				r.Post("/flashcards/generate", aiCtrl.GenerateFlashcardDeck)
 			})
@@ -122,6 +134,14 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 				r.Patch("/sessions/{id}", aiCtrl.UpdateChatSession)
 				r.Delete("/sessions/{id}", aiCtrl.DeleteChatSession)
 				r.Post("/analyze-notes", aiCtrl.AnalyzeNotes)
+
+				// Mind Maps Persistence & CRUD (Obsidian/Heptabase Canvas)
+				r.Post("/mindmaps", aiCtrl.SaveMindMap)
+				r.Get("/mindmaps", aiCtrl.ListMindMaps)
+				r.Get("/mindmaps/{id}", aiCtrl.GetMindMap)
+				r.Put("/mindmaps/{id}", aiCtrl.UpdateMindMap)
+				r.Delete("/mindmaps/{id}", aiCtrl.DeleteMindMap)
+				r.Patch("/mindmaps/{id}/pin", aiCtrl.TogglePinMindMap)
 			})
 		})
 
@@ -154,6 +174,42 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 
 		// Focus Study Minutes & Streak Tracker
 		r.With(middleware.JWTAuth(cfg.JwtSecret)).Post("/profile/study-time", studyPlanCtrl.RecordStudyTime)
+
+		// Academic Entities (Courses, Folders, Notes with Full-Text Search)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.JWTAuth(cfg.JwtSecret))
+
+			r.Route("/courses", func(r chi.Router) {
+				r.Get("/", academicCtrl.ListCourses)
+				r.Post("/", academicCtrl.CreateCourse)
+				r.Get("/{id}", academicCtrl.GetCourse)
+				r.Put("/{id}", academicCtrl.UpdateCourse)
+				r.Delete("/{id}", academicCtrl.DeleteCourse)
+			})
+
+			r.Route("/folders", func(r chi.Router) {
+				r.Post("/", academicCtrl.CreateFolder)
+				r.Get("/{id}", academicCtrl.GetFolder)
+				r.Get("/tree/{courseId}", academicCtrl.GetFolderTree)
+				r.Put("/{id}", academicCtrl.UpdateFolder)
+				r.Delete("/{id}", academicCtrl.DeleteFolder)
+			})
+
+			r.Route("/notes", func(r chi.Router) {
+				r.Get("/", academicCtrl.ListNotes)
+				r.Post("/", academicCtrl.CreateNote)
+				r.Get("/{id}", academicCtrl.GetNote)
+				r.Put("/{id}", academicCtrl.UpdateNote)
+				r.Delete("/{id}", academicCtrl.DeleteNote)
+			})
+
+			// Offline Delta Sync for Mobile Flutter Client
+			r.Get("/sync", syncCtrl.Sync)
+
+			// High-Fidelity PDF Export (Chromedp / Vector PDF)
+			r.Post("/export/pdf", exportCtrl.ExportPDF)
+			r.Get("/export/pdf", exportCtrl.ExportPDF)
+		})
 	})
 
 	return r

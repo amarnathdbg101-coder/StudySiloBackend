@@ -89,6 +89,9 @@ func (m *mockNoteRepo) GetByID(ctx context.Context, id, userID string) (*model.N
 func (m *mockNoteRepo) List(ctx context.Context, userID string, c, f, t *string) ([]*model.Note, error) {
 	return []*model.Note{}, nil
 }
+func (m *mockNoteRepo) Search(ctx context.Context, userID, searchTerm string, limit int) ([]*model.Note, error) {
+	return []*model.Note{}, nil
+}
 func (m *mockNoteRepo) Update(ctx context.Context, n *model.Note) error { return nil }
 func (m *mockNoteRepo) Delete(ctx context.Context, id, userID string) error { return nil }
 

@@ -6,10 +6,11 @@ import (
 )
 
 type Response struct {
-	Success bool        `json:"success"`
-	Message string      `json:"message,omitempty"`
-	Data    interface{} `json:"data,omitempty"`
-	Error   string      `json:"error,omitempty"`
+	Success   bool        `json:"success"`
+	Message   string      `json:"message,omitempty"`
+	Data      interface{} `json:"data,omitempty"`
+	Error     string      `json:"error,omitempty"`
+	ErrorCode string      `json:"error_code,omitempty"`
 }
 
 func JSON(w http.ResponseWriter, status int, data interface{}) {
@@ -34,6 +35,17 @@ func Error(w http.ResponseWriter, status int, err string) {
 		}
 	}
 	JSON(w, status, Response{Success: false, Error: err})
+}
+
+// ErrorWithCode sends a standardized JSON error response with machine-readable error code
+func ErrorWithCode(w http.ResponseWriter, status int, code, err string) {
+	if status >= http.StatusInternalServerError && err == "" {
+		err = http.StatusText(status)
+		if err == "" {
+			err = "Internal Server Error"
+		}
+	}
+	JSON(w, status, Response{Success: false, Error: err, ErrorCode: code})
 }
 
 func Message(w http.ResponseWriter, status int, msg string) {

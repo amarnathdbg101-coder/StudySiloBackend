@@ -20,7 +20,10 @@ require (
 
 require (
 	github.com/KyleBanks/depth v1.2.1 // indirect
+	github.com/chromedp/cdproto v0.157.8 // indirect
+	github.com/chromedp/chromedp v0.21.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.15 // indirect
+	github.com/go-json-experiment/json v0.0.0-20260213210345-44df1a37e875 // indirect
 	github.com/go-openapi/jsonpointer v0.19.5 // indirect
 	github.com/go-openapi/jsonreference v0.20.0 // indirect
 	github.com/go-openapi/spec v0.20.6 // indirect

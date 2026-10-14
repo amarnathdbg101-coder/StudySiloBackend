@@ -16,6 +16,7 @@ type NoteRepository interface {
 	Create(ctx context.Context, note *model.Note) error
 	GetByID(ctx context.Context, id, userID string) (*model.Note, error)
 	List(ctx context.Context, userID string, courseID, folderID *string, tag *string) ([]*model.Note, error)
+	Search(ctx context.Context, userID, searchTerm string, limit int) ([]*model.Note, error)
 	Update(ctx context.Context, note *model.Note) error
 	Delete(ctx context.Context, id, userID string) error
 }
@@ -81,6 +82,48 @@ func (r *noteRepo) List(ctx context.Context, userID string, courseID, folderID *
 	rows, err := r.db.Query(ctx, query, userID, courseID, folderID, tag)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list notes: %w", err)
+	}
+	defer rows.Close()
+
+	notes := []*model.Note{}
+	for rows.Next() {
+		n := &model.Note{}
+		if err := rows.Scan(
+			&n.ID, &n.UserID, &n.CourseID, &n.FolderID, &n.ModuleName,
+			&n.Title, &n.Description, &n.Content, &n.FileURL,
+			&n.FileType, &n.FileSize, &n.Tags, &n.IsPinned, &n.IsArchived,
+			&n.CreatedAt, &n.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		notes = append(notes, n)
+	}
+	return notes, rows.Err()
+}
+
+// Search performs ranked PostgreSQL GIN full-text search with title ILIKE fallback
+func (r *noteRepo) Search(ctx context.Context, userID, searchTerm string, limit int) ([]*model.Note, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+
+	query := `
+		SELECT id, user_id, course_id, folder_id, module_name, title, description, content, file_url, file_type, file_size, tags, is_pinned, is_archived, created_at, updated_at
+		FROM notes
+		WHERE user_id = $1 
+		  AND is_archived = false
+		  AND (
+		      to_tsvector('english', title || ' ' || COALESCE(description, '') || ' ' || COALESCE(content, '')) @@ websearch_to_tsquery('english', $2)
+		      OR title ILIKE '%' || $2 || '%'
+		      OR description ILIKE '%' || $2 || '%'
+		  )
+		ORDER BY is_pinned DESC, updated_at DESC
+		LIMIT $3
+	`
+
+	rows, err := r.db.Query(ctx, query, userID, searchTerm, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search notes: %w", err)
 	}
 	defer rows.Close()
 

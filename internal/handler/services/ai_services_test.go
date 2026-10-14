@@ -2,11 +2,13 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"goProjectStructure/internal/handler/dto"
 	"goProjectStructure/internal/handler/model"
+	"goProjectStructure/internal/handler/repository"
 	"goProjectStructure/internal/reuse/ai"
 )
 
@@ -381,7 +383,7 @@ func TestNotesAnalyzerService_Analyze(t *testing.T) {
 
 func TestDiagramService_Generate(t *testing.T) {
 	orch := ai.NewOrchestrator([]string{}, []string{}, []string{})
-	diagService := NewDiagramService(orch)
+	diagService := NewDiagramService(orch, nil)
 
 	ctx := context.Background()
 	req := dto.DiagramRequest{
@@ -407,3 +409,141 @@ func TestDiagramService_Generate(t *testing.T) {
 		t.Error("expected graph nodes and edges for CustomPainter")
 	}
 }
+
+type mockMindMapRepo struct {
+	maps map[string]*model.MindMap
+}
+
+func (m *mockMindMapRepo) Create(ctx context.Context, item *model.MindMap) error {
+	item.ID = "map-123"
+	m.maps[item.ID] = item
+	return nil
+}
+
+func (m *mockMindMapRepo) GetByID(ctx context.Context, userID, id string) (*model.MindMap, error) {
+	item, ok := m.maps[id]
+	if !ok || item.UserID != userID {
+		return nil, repository.ErrMindMapNotFound
+	}
+	return item, nil
+}
+
+func (m *mockMindMapRepo) List(ctx context.Context, userID string, search string, limit, offset int) ([]*model.MindMap, int, error) {
+	var list []*model.MindMap
+	for _, item := range m.maps {
+		if item.UserID == userID {
+			list = append(list, item)
+		}
+	}
+	return list, len(list), nil
+}
+
+func (m *mockMindMapRepo) Update(ctx context.Context, userID, id string, title *string, data json.RawMessage, isPinned *bool) (*model.MindMap, error) {
+	item, err := m.GetByID(ctx, userID, id)
+	if err != nil {
+		return nil, err
+	}
+	if title != nil {
+		item.Title = *title
+	}
+	if len(data) > 0 {
+		item.Data = data
+	}
+	if isPinned != nil {
+		item.IsPinned = *isPinned
+	}
+	return item, nil
+}
+
+func (m *mockMindMapRepo) Delete(ctx context.Context, userID, id string) error {
+	_, err := m.GetByID(ctx, userID, id)
+	if err != nil {
+		return err
+	}
+	delete(m.maps, id)
+	return nil
+}
+
+func (m *mockMindMapRepo) TogglePin(ctx context.Context, userID, id string) (*model.MindMap, error) {
+	item, err := m.GetByID(ctx, userID, id)
+	if err != nil {
+		return nil, err
+	}
+	item.IsPinned = !item.IsPinned
+	return item, nil
+}
+
+func TestDiagramService_MindMapCRUD(t *testing.T) {
+	repo := &mockMindMapRepo{maps: make(map[string]*model.MindMap)}
+	orch := ai.NewOrchestrator([]string{}, []string{}, []string{})
+	diagService := NewDiagramService(orch, repo)
+	ctx := context.Background()
+	userID := "user-student-1"
+
+	// 1. Create / Save MindMap
+	saveReq := dto.SaveMindMapRequest{
+		Title:       "Quick Sort Mind Map",
+		Concept:     "Quick Sort",
+		DiagramType: "mindmap",
+		DomainType:  "algorithm",
+		Data:        json.RawMessage(`{"nodes": [{"id":"root","label":"Quick Sort"}]}`),
+	}
+	saved, err := diagService.SaveMindMap(ctx, userID, saveReq)
+	if err != nil {
+		t.Fatalf("failed to save mind map: %v", err)
+	}
+	if saved.ID != "map-123" || saved.Title != "Quick Sort Mind Map" {
+		t.Errorf("unexpected saved mind map: %+v", saved)
+	}
+
+	// 2. List MindMaps
+	list, total, err := diagService.ListMindMaps(ctx, userID, "", 10, 0)
+	if err != nil {
+		t.Fatalf("failed to list mind maps: %v", err)
+	}
+	if total != 1 || len(list) != 1 {
+		t.Fatalf("expected 1 mind map, got total=%d len=%d", total, len(list))
+	}
+
+	// 3. Get MindMap By ID
+	fetched, err := diagService.GetMindMap(ctx, userID, saved.ID)
+	if err != nil {
+		t.Fatalf("failed to get mind map: %v", err)
+	}
+	if fetched.Concept != "Quick Sort" {
+		t.Errorf("expected concept Quick Sort, got %s", fetched.Concept)
+	}
+
+	// 4. Update MindMap
+	newTitle := "Advanced Quick Sort Mind Map"
+	isPinned := true
+	updated, err := diagService.UpdateMindMap(ctx, userID, saved.ID, dto.UpdateMindMapRequest{
+		Title:    &newTitle,
+		IsPinned: &isPinned,
+	})
+	if err != nil {
+		t.Fatalf("failed to update mind map: %v", err)
+	}
+	if updated.Title != newTitle || !updated.IsPinned {
+		t.Errorf("mind map update failed: %+v", updated)
+	}
+
+	// 5. Toggle Pin
+	toggled, err := diagService.TogglePinMindMap(ctx, userID, saved.ID)
+	if err != nil {
+		t.Fatalf("failed to toggle pin: %v", err)
+	}
+	if toggled.IsPinned {
+		t.Errorf("expected is_pinned to become false, got true")
+	}
+
+	// 6. Delete MindMap
+	if err := diagService.DeleteMindMap(ctx, userID, saved.ID); err != nil {
+		t.Fatalf("failed to delete mind map: %v", err)
+	}
+	_, err = diagService.GetMindMap(ctx, userID, saved.ID)
+	if err == nil {
+		t.Error("expected error getting deleted mind map, got nil")
+	}
+}
+

@@ -1,5 +1,10 @@
 package dto
 
+import (
+	"encoding/json"
+	"time"
+)
+
 // ---------------------------------------------------------------------------
 // Multi-Modal AI Tutor DTOs
 // ---------------------------------------------------------------------------
@@ -143,41 +148,120 @@ type DiagramRequest struct {
 }
 
 type MindMapNode struct {
-	ID       string         `json:"id"`
-	Label    string         `json:"label"`
-	Details  string         `json:"details"`
-	ColorHex string         `json:"color_hex"`
-	Children []*MindMapNode `json:"children"`
+	ID          string            `json:"id"`
+	Label       string            `json:"label"`
+	Details     string            `json:"details"`
+	ColorHex    string            `json:"color_hex"`
+	BranchID    string            `json:"branch_id,omitempty"`
+	DomainType  string            `json:"domain_type,omitempty"`
+	KeyTakeaway string            `json:"key_takeaway,omitempty"`
+	ExamTrap    string            `json:"exam_trap,omitempty"`
+	Importance  int               `json:"importance,omitempty"`
+	Badge       string            `json:"badge,omitempty"`
+	Metrics     map[string]string `json:"metrics,omitempty"`
+	CodeSnippet string            `json:"code_snippet,omitempty"`
+	CrossLinks  []string          `json:"cross_links,omitempty"`
+	Formulas    []string          `json:"formulas,omitempty"`
+	Children    []*MindMapNode    `json:"children"`
 }
 
 type GraphNode struct {
-	ID          string   `json:"id"`
-	Label       string   `json:"label"`
-	Description string   `json:"description,omitempty"`
-	NodeType    string   `json:"node_type,omitempty"`
-	X           float64  `json:"x,omitempty"`
-	Y           float64  `json:"y,omitempty"`
-	Width       float64  `json:"width,omitempty"`
-	Height      float64  `json:"height,omitempty"`
-	Shape       string   `json:"shape,omitempty"`
-	ColorHex    string   `json:"color_hex"`
-	Formulas    []string `json:"formulas,omitempty"`
+	ID          string            `json:"id"`
+	Label       string            `json:"label"`
+	Description string            `json:"description,omitempty"`
+	NodeType    string            `json:"node_type,omitempty"`
+	BranchID    string            `json:"branch_id,omitempty"`
+	DomainType  string            `json:"domain_type,omitempty"`
+	KeyTakeaway string            `json:"key_takeaway,omitempty"`
+	ExamTrap    string            `json:"exam_trap,omitempty"`
+	Importance  int               `json:"importance,omitempty"`
+	Badge       string            `json:"badge,omitempty"`
+	Metrics     map[string]string `json:"metrics,omitempty"`
+	CodeSnippet string            `json:"code_snippet,omitempty"`
+	CrossLinks  []string          `json:"cross_links,omitempty"`
+	X           float64           `json:"x,omitempty"`
+	Y           float64           `json:"y,omitempty"`
+	Width       float64           `json:"width,omitempty"`
+	Height      float64           `json:"height,omitempty"`
+	Shape       string            `json:"shape,omitempty"`
+	ColorHex    string            `json:"color_hex"`
+	Formulas    []string          `json:"formulas,omitempty"`
 }
 
 type GraphEdge struct {
-	From   string `json:"from"`
-	To     string `json:"to"`
-	FromID string `json:"from_id,omitempty"`
-	ToID   string `json:"to_id,omitempty"`
-	Label  string `json:"label"`
-	Arrow  bool   `json:"arrow"`
+	From        string `json:"from"`
+	To          string `json:"to"`
+	FromID      string `json:"from_id,omitempty"`
+	ToID        string `json:"to_id,omitempty"`
+	Label       string `json:"label"`
+	Arrow       bool   `json:"arrow"`
+	IsCrossLink bool   `json:"is_cross_link,omitempty"`
+	Style       string `json:"style,omitempty"`
 }
 
 type DiagramResponse struct {
 	Concept     string       `json:"concept"`
 	Title       string       `json:"title,omitempty"`
 	DiagramType string       `json:"diagram_type"`
+	DomainType  string       `json:"domain_type,omitempty"`
 	Root        *MindMapNode `json:"root,omitempty"`
 	Nodes       []GraphNode  `json:"nodes,omitempty"`
 	Edges       []GraphEdge  `json:"edges,omitempty"`
+}
+
+type ExpandNodeRequest struct {
+	Concept     string `json:"concept" validate:"required"`
+	NodeID      string `json:"node_id" validate:"required"`
+	NodeLabel   string `json:"node_label" validate:"required"`
+	NodeDetails string `json:"node_details,omitempty"`
+	BranchColor string `json:"branch_color,omitempty"`
+	Provider    string `json:"provider,omitempty"`
+	Model       string `json:"model,omitempty"`
+}
+
+type ExpandNodeResponse struct {
+	NodeID   string      `json:"node_id"`
+	NewNodes []GraphNode `json:"new_nodes"`
+	NewEdges []GraphEdge `json:"new_edges"`
+}
+
+type SaveMindMapRequest struct {
+	Title       string          `json:"title" validate:"required,min=2,max=255"`
+	Concept     string          `json:"concept" validate:"required,min=2,max=255"`
+	DiagramType string          `json:"diagram_type" validate:"omitempty,oneof=mindmap flowchart concept_tree"`
+	DomainType  string          `json:"domain_type" validate:"omitempty"`
+	NoteID      *string         `json:"note_id,omitempty"`
+	Data        json.RawMessage `json:"data" validate:"required"`
+	IsPinned    bool            `json:"is_pinned,omitempty"`
+}
+
+type UpdateMindMapRequest struct {
+	Title    *string          `json:"title,omitempty" validate:"omitempty,min=2,max=255"`
+	Data     *json.RawMessage `json:"data,omitempty"`
+	IsPinned *bool            `json:"is_pinned,omitempty"`
+}
+
+type SavedMindMapSummary struct {
+	ID          string    `json:"id"`
+	Title       string    `json:"title"`
+	Concept     string    `json:"concept"`
+	DiagramType string    `json:"diagram_type"`
+	DomainType  string    `json:"domain_type"`
+	NoteID      *string   `json:"note_id,omitempty"`
+	IsPinned    bool      `json:"is_pinned"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type SavedMindMapResponse struct {
+	ID          string          `json:"id"`
+	Title       string          `json:"title"`
+	Concept     string          `json:"concept"`
+	DiagramType string          `json:"diagram_type"`
+	DomainType  string          `json:"domain_type"`
+	NoteID      *string         `json:"note_id,omitempty"`
+	Data        json.RawMessage `json:"data"`
+	IsPinned    bool            `json:"is_pinned"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
 }

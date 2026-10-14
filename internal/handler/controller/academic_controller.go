@@ -4,6 +4,7 @@ package controller
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"goProjectStructure/internal/handler/dto"
 	"goProjectStructure/internal/handler/services"
@@ -277,6 +278,24 @@ func (c *AcademicController) ListNotes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := r.URL.Query()
+	if q := strings.TrimSpace(query.Get("q")); q != "" {
+		notes, err := c.academicService.SearchNotes(r.Context(), claims.UserID, q, 25)
+		if err != nil {
+			reuse.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		reuse.Success(w, "notes search results", notes)
+		return
+	} else if search := strings.TrimSpace(query.Get("search")); search != "" {
+		notes, err := c.academicService.SearchNotes(r.Context(), claims.UserID, search, 25)
+		if err != nil {
+			reuse.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		reuse.Success(w, "notes search results", notes)
+		return
+	}
+
 	var courseID *string
 	if val := query.Get("course_id"); val != "" {
 		courseID = &val
