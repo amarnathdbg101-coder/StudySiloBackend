@@ -92,6 +92,38 @@ func (m *mockCognitiveRepo) RecordQuizResult(ctx context.Context, userID string,
 	return p, nil
 }
 
+func (m *mockCognitiveRepo) RecordActivity(ctx context.Context, userID, activityType, topic string, durationMinutes int) (*model.CognitiveProfile, error) {
+	p, _ := m.GetByUserID(ctx, userID)
+	p.TotalStudyMinutes += durationMinutes
+	return p, nil
+}
+
+func (m *mockCognitiveRepo) PromoteTopic(ctx context.Context, userID, topic string) (*model.CognitiveProfile, error) {
+	p, _ := m.GetByUserID(ctx, userID)
+	p.StrongTopics = append(p.StrongTopics, topic)
+	return p, nil
+}
+
+func (m *mockCognitiveRepo) DemoteTopic(ctx context.Context, userID, topic string) (*model.CognitiveProfile, error) {
+	p, _ := m.GetByUserID(ctx, userID)
+	p.WeakTopics = append(p.WeakTopics, topic)
+	return p, nil
+}
+
+func (m *mockCognitiveRepo) DeleteTopic(ctx context.Context, userID, topic string) (*model.CognitiveProfile, error) {
+	p, _ := m.GetByUserID(ctx, userID)
+	return p, nil
+}
+
+func (m *mockCognitiveRepo) SaveDiagnosis(ctx context.Context, userID, summary string, readinessScore int, topicMastery map[string]int, traps, recommendedActions []string) (*model.CognitiveProfile, error) {
+	p, _ := m.GetByUserID(ctx, userID)
+	p.AISummary = summary
+	p.ReadinessScore = readinessScore
+	p.TopicMastery = topicMastery
+	p.RecommendedActions = recommendedActions
+	return p, nil
+}
+
 func TestQuizService_GenerateAndSubmitFlow(t *testing.T) {
 	orch := ai.NewOrchestrator([]string{}, []string{}, []string{})
 	qRepo := &mockQuizRepo{quizzes: make(map[string]*model.Quiz)}

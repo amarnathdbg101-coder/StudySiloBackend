@@ -14,7 +14,7 @@ type GenerateQuizRequest struct {
 
 type QuestionAnswerInput struct {
 	QuestionID     string `json:"question_id" validate:"required"`
-	SelectedOption int    `json:"selected_option" validate:"gte=0"`
+	SelectedOption int    `json:"selected_option"` // allowed to be -1 if skipped or unanswered
 }
 
 type SubmitQuizRequest struct {

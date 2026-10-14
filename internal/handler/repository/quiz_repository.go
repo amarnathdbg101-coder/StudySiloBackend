@@ -141,7 +141,7 @@ func (r *quizRepo) ListQuizzesByUser(ctx context.Context, userID string) ([]*mod
 
 	quizzes := []*model.Quiz{}
 	for rows.Next() {
-		q := &model.Quiz{}
+		q := &model.Quiz{Questions: []*model.QuizQuestion{}}
 		if err := rows.Scan(
 			&q.ID, &q.UserID, &q.CourseID, &q.NoteID,
 			&q.Title, &q.Topic, &q.Difficulty, &q.TotalQuestions,
@@ -151,6 +151,33 @@ func (r *quizRepo) ListQuizzesByUser(ctx context.Context, userID string) ([]*mod
 		}
 		quizzes = append(quizzes, q)
 	}
+
+	// Efficiently attach questions to each quiz
+	for _, q := range quizzes {
+		qqQuery := `
+			SELECT id, quiz_id, question_text, options, correct_option_index, explanation, trap_warning, difficulty, topic, created_at
+			FROM quiz_questions
+			WHERE quiz_id = $1
+			ORDER BY created_at ASC
+		`
+		qRows, qErr := r.db.Query(ctx, qqQuery, q.ID)
+		if qErr == nil {
+			for qRows.Next() {
+				qq := &model.QuizQuestion{}
+				var optJSON []byte
+				if err := qRows.Scan(
+					&qq.ID, &qq.QuizID, &qq.QuestionText, &optJSON,
+					&qq.CorrectOptionIndex, &qq.Explanation, &qq.TrapWarning,
+					&qq.Difficulty, &qq.Topic, &qq.CreatedAt,
+				); err == nil {
+					_ = json.Unmarshal(optJSON, &qq.Options)
+					q.Questions = append(q.Questions, qq)
+				}
+			}
+			qRows.Close()
+		}
+	}
+
 	return quizzes, rows.Err()
 }
 

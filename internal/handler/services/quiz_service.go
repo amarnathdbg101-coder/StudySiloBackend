@@ -215,7 +215,7 @@ RULES:
 }
 
 func (s *quizService) GetQuiz(ctx context.Context, id, userID string) (*model.Quiz, error) {
-	if userID != "" && userID != "guest-user" && s.quizRepo != nil {
+	if isValidUUID(id) && userID != "" && userID != "guest-user" && s.quizRepo != nil {
 		q, err := s.quizRepo.GetQuizByID(ctx, id, userID)
 		if err == nil && q != nil && len(q.Questions) > 0 {
 			return q, nil
@@ -327,7 +327,7 @@ func (s *quizService) SubmitQuiz(ctx context.Context, id, userID string, req dto
 	}
 
 	// Persist attempt if database is available
-	if userID != "" && userID != "guest-user" && s.quizRepo != nil {
+	if isValidUUID(id) && userID != "" && userID != "guest-user" && s.quizRepo != nil {
 		_ = s.quizRepo.SaveAttempt(ctx, attempt)
 	}
 

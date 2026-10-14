@@ -103,10 +103,13 @@ type FlashcardReviewResponse struct {
 }
 
 type GenerateFlashcardDeckRequest struct {
-	Topic     string `json:"topic" validate:"required,min=2"`
-	CardCount int    `json:"card_count" validate:"omitempty,min=3,max=20"`
-	Provider  string `json:"provider"`
-	Model     string `json:"model"`
+	Topic      string `json:"topic" validate:"required,min=2"`
+	Content    string `json:"content,omitempty"`
+	CardCount  int    `json:"card_count" validate:"omitempty,min=3,max=20"`
+	Difficulty string `json:"difficulty" validate:"omitempty,oneof=easy medium hard"`
+	SaveDeck   bool   `json:"save_deck"`
+	Provider   string `json:"provider,omitempty"`
+	Model      string `json:"model,omitempty"`
 }
 
 type FlashcardDeckCard struct {
@@ -115,15 +118,48 @@ type FlashcardDeckCard struct {
 	Back        string  `json:"back"`
 	Difficulty  string  `json:"difficulty"`
 	Topic       string  `json:"topic"`
-	Repetitions int     `json:"repetitions"`
-	Interval    int     `json:"interval_days"`
-	EaseFactor  float64 `json:"ease_factor"`
+	IsMastered  bool    `json:"is_mastered"`
+	IsReviewed  bool    `json:"is_reviewed"`
+	Repetitions int     `json:"repetitions,omitempty"`
+	Interval    int     `json:"interval_days,omitempty"`
+	EaseFactor  float64 `json:"ease_factor,omitempty"`
 }
 
 type GenerateFlashcardDeckResponse struct {
-	Topic      string              `json:"topic"`
-	TotalCards int                 `json:"total_cards"`
-	Cards      []FlashcardDeckCard `json:"cards"`
+	DeckID        string              `json:"deck_id,omitempty"`
+	Title         string              `json:"title"`
+	Topic         string              `json:"topic"`
+	Difficulty    string              `json:"difficulty"`
+	TotalCards    int                 `json:"total_cards"`
+	MasteredCount int                 `json:"mastered_count"`
+	Cards         []FlashcardDeckCard `json:"cards"`
+}
+
+type SaveFlashcardDeckRequest struct {
+	Title         string              `json:"title" validate:"required,min=2"`
+	Topic         string              `json:"topic" validate:"required,min=2"`
+	Difficulty    string              `json:"difficulty" validate:"omitempty,oneof=easy medium hard"`
+	Cards         []FlashcardDeckCard `json:"cards" validate:"required,min=1"`
+	MasteredCount int                 `json:"mastered_count"`
+}
+
+type UpdateFlashcardDeckRequest struct {
+	Title         *string             `json:"title,omitempty"`
+	Cards         []FlashcardDeckCard `json:"cards,omitempty"`
+	MasteredCount *int                `json:"mastered_count,omitempty"`
+	IsPinned      *bool               `json:"is_pinned,omitempty"`
+}
+
+type FlashcardDeckSummary struct {
+	ID            string    `json:"id"`
+	Title         string    `json:"title"`
+	Topic         string    `json:"topic"`
+	Difficulty    string    `json:"difficulty"`
+	CardCount     int       `json:"card_count"`
+	MasteredCount int       `json:"mastered_count"`
+	IsPinned      bool      `json:"is_pinned"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 type StudentMistakesResponse struct {

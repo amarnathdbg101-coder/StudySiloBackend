@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
+	"time"
 
 	"goProjectStructure/internal/handler/dto"
 	"goProjectStructure/internal/handler/model"
@@ -247,7 +248,37 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 		}
 	}
 
+	// Asynchronously record learning activity in student's Cognitive Profile (Memory Engine)
+	if userID != "" && userID != "guest-user" && s.cognitiveRepo != nil {
+		go func(uid, q string) {
+			bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			topic := extractTopicSnippet(q)
+			_, _ = s.cognitiveRepo.RecordActivity(bgCtx, uid, "doubt", topic, 2)
+		}(userID, req.Question)
+	}
+
 	return resp, nil
+}
+
+func extractTopicSnippet(question string) string {
+	q := strings.TrimSpace(question)
+	q = strings.TrimPrefix(q, "What is ")
+	q = strings.TrimPrefix(q, "what is ")
+	q = strings.TrimPrefix(q, "Explain ")
+	q = strings.TrimPrefix(q, "explain ")
+	q = strings.TrimPrefix(q, "How to ")
+	q = strings.TrimPrefix(q, "how to ")
+	q = strings.TrimPrefix(q, "Difference between ")
+	q = strings.TrimRight(q, "?!.")
+	words := strings.Fields(q)
+	if len(words) == 0 {
+		return "General Concept"
+	}
+	if len(words) > 4 {
+		return strings.Join(words[:4], " ")
+	}
+	return strings.Join(words, " ")
 }
 
 func (s *aiTutorService) generateText(ctx context.Context, apiKey, provider, modelName, systemPrompt, userQuery string, onChunk func(string)) (string, error) {
@@ -789,6 +820,39 @@ CHEAT SHEET & FLASHCARD PROTOCOL:
    - ⚠️ Trap Warning for common calculation errors.
 
 LANGUAGE: Concise, bulleted, high-yield. Hinglish or English.
+` + globalFormattingDirectives
+
+	case "formula_vault", "formula_studio", "formula":
+		return `PERSONA: 🧮 AI Formula Studio & Mathematical Physics Vault.
+MISSION: Synthesize a verified, complete, high-yield academic formula breakdown with LaTeX equations, parameter table, SI units, examiner trap warnings, and step-by-step derivation.
+
+FORMULA STUDIO PROTOCOL:
+1. PRIMARY EQUATION / THEOREM (LaTeX Display):
+$$
+\boxed{\text{Primary Mathematical Equation}}
+$$
+State the equation clearly with complete mathematical rigor.
+
+2. VARIABLES, PARAMETERS & SI UNITS TABLE:
+| Symbol | Parameter / Quantity Name | SI Unit / Dimensions | Physical Significance |
+|---|---|---|---|
+| [symbol] | [meaning] | [SI unit] | [intuition] |
+
+3. INTUITION & PHYSICAL MEANING:
+- Clear, intuitive explanation of what the formula actually represents in the real world.
+- Explain boundary limits (e.g. as variable -> 0 or variable -> infinity).
+
+4. EXAMINER TRAP & MISCONCEPTION WARNING:
+> ⚠️ **Examiner Trap & Unit Warning:** [State the #1 error students make with units, negative signs, domain restrictions, or invalid approximations].
+
+5. ANALYTICAL DERIVATION / PROOF OUTLINE:
+- Step-by-step algebraic or calculus derivation showing how the formula is obtained from first principles.
+- Use numbered LaTeX equations for key transition steps.
+
+6. NUMERICAL BENCHMARK EXAMPLE:
+- Concrete numerical example substituting standard values into the formula with calculated final numerical result and correct units.
+
+LANGUAGE: Precise, rigorous, structured. Hinglish or English based on student input.
 ` + globalFormattingDirectives
 
 	default: // academic

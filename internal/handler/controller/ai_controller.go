@@ -26,17 +26,20 @@ type AIController struct {
 	aiTutorService       services.AITutorService
 	notesAnalyzerService services.NotesAnalyzerService
 	diagramService       services.DiagramService
+	flashcardService     services.FlashcardService
 }
 
 func NewAIController(
 	aiTutorService services.AITutorService,
 	notesAnalyzerService services.NotesAnalyzerService,
 	diagramService services.DiagramService,
+	flashcardService services.FlashcardService,
 ) *AIController {
 	return &AIController{
 		aiTutorService:       aiTutorService,
 		notesAnalyzerService: notesAnalyzerService,
 		diagramService:       diagramService,
+		flashcardService:     flashcardService,
 	}
 }
 
@@ -540,40 +543,190 @@ func (c *AIController) GenerateFlashcardDeck(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	analysisReq := dto.NotesAnalysisRequest{
-		Content:           req.Topic,
-		IncludeFlashcards: true,
-		Provider:          req.Provider,
-		Model:             req.Model,
-	}
-
-	analysis, err := c.notesAnalyzerService.AnalyzeNotes(r.Context(), userID, analysisReq)
+	resp, err := c.flashcardService.GenerateDeck(r.Context(), userID, req)
 	if err != nil {
 		reuse.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	cards := make([]dto.FlashcardDeckCard, 0, len(analysis.Flashcards))
-	for i, f := range analysis.Flashcards {
-		cards = append(cards, dto.FlashcardDeckCard{
-			ID:          fmt.Sprintf("card-%d", i+1),
-			Front:       f.Front,
-			Back:        f.Back,
-			Difficulty:  f.Difficulty,
-			Topic:       f.Topic,
-			Repetitions: 0,
-			Interval:    1,
-			EaseFactor:  2.5,
-		})
-	}
-
-	resp := dto.GenerateFlashcardDeckResponse{
-		Topic:      req.Topic,
-		TotalCards: len(cards),
-		Cards:      cards,
-	}
-
 	reuse.Success(w, "active recall flashcard deck generated successfully", resp)
+}
+
+// SaveFlashcardDeck saves a flashcard deck into PostgreSQL
+func (c *AIController) SaveFlashcardDeck(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	if claims == nil {
+		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
+		return
+	}
+
+	var req dto.SaveFlashcardDeckRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		reuse.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := reuse.ValidateStruct(req); err != nil {
+		reuse.Error(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+
+	resp, err := c.flashcardService.SaveDeck(r.Context(), claims.UserID, req)
+	if err != nil {
+		reuse.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	reuse.Success(w, "flashcard deck saved successfully", resp)
+}
+
+// ListFlashcardDecks returns all saved flashcard decks for the authenticated user
+func (c *AIController) ListFlashcardDecks(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	if claims == nil {
+		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
+		return
+	}
+
+	search := r.URL.Query().Get("search")
+	limit := 20
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+	offset := 0
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	decks, total, err := c.flashcardService.ListDecks(r.Context(), claims.UserID, search, limit, offset)
+	if err != nil {
+		reuse.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	reuse.Success(w, "flashcard decks retrieved successfully", map[string]interface{}{
+		"items":  decks,
+		"total":  total,
+		"limit":  limit,
+		"offset": offset,
+	})
+}
+
+// GetFlashcardDeck retrieves a specific saved flashcard deck by its ID
+func (c *AIController) GetFlashcardDeck(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	if claims == nil {
+		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		reuse.Error(w, http.StatusBadRequest, "flashcard deck id required")
+		return
+	}
+
+	resp, err := c.flashcardService.GetDeck(r.Context(), claims.UserID, id)
+	if err != nil {
+		if errors.Is(err, repository.ErrFlashcardDeckNotFound) {
+			reuse.Error(w, http.StatusNotFound, "flashcard deck not found")
+			return
+		}
+		reuse.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	reuse.Success(w, "flashcard deck retrieved successfully", resp)
+}
+
+// UpdateFlashcardDeck updates cards review status, title, or pin status of a saved deck
+func (c *AIController) UpdateFlashcardDeck(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	if claims == nil {
+		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		reuse.Error(w, http.StatusBadRequest, "flashcard deck id required")
+		return
+	}
+
+	var req dto.UpdateFlashcardDeckRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		reuse.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	resp, err := c.flashcardService.UpdateDeck(r.Context(), claims.UserID, id, req)
+	if err != nil {
+		if errors.Is(err, repository.ErrFlashcardDeckNotFound) {
+			reuse.Error(w, http.StatusNotFound, "flashcard deck not found")
+			return
+		}
+		reuse.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	reuse.Success(w, "flashcard deck updated successfully", resp)
+}
+
+// DeleteFlashcardDeck removes a saved flashcard deck from database
+func (c *AIController) DeleteFlashcardDeck(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	if claims == nil {
+		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		reuse.Error(w, http.StatusBadRequest, "flashcard deck id required")
+		return
+	}
+
+	if err := c.flashcardService.DeleteDeck(r.Context(), claims.UserID, id); err != nil {
+		if errors.Is(err, repository.ErrFlashcardDeckNotFound) {
+			reuse.Error(w, http.StatusNotFound, "flashcard deck not found")
+			return
+		}
+		reuse.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	reuse.Success(w, "flashcard deck deleted successfully", map[string]string{"id": id})
+}
+
+// TogglePinFlashcardDeck toggles the pinned status of a flashcard deck
+func (c *AIController) TogglePinFlashcardDeck(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	if claims == nil {
+		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		reuse.Error(w, http.StatusBadRequest, "flashcard deck id required")
+		return
+	}
+
+	resp, err := c.flashcardService.TogglePin(r.Context(), claims.UserID, id)
+	if err != nil {
+		if errors.Is(err, repository.ErrFlashcardDeckNotFound) {
+			reuse.Error(w, http.StatusNotFound, "flashcard deck not found")
+			return
+		}
+		reuse.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	reuse.Success(w, "flashcard deck pin toggled successfully", resp)
 }
 
 // SaveMindMap saves a generated or customized visual mind map into PostgreSQL

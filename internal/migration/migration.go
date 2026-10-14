@@ -62,6 +62,28 @@ func EnsureSchemaColumns(pool *pgxpool.Pool) error {
 		`CREATE INDEX IF NOT EXISTS idx_mind_maps_user_concept ON mind_maps(user_id, concept);`,
 		`CREATE INDEX IF NOT EXISTS idx_mind_maps_note ON mind_maps(note_id) WHERE note_id IS NOT NULL;`,
 		`CREATE INDEX IF NOT EXISTS idx_mind_maps_data_gin ON mind_maps USING GIN(data);`,
+		`ALTER TABLE cognitive_profiles ADD COLUMN IF NOT EXISTS ai_summary TEXT NOT NULL DEFAULT '';`,
+		`ALTER TABLE cognitive_profiles ADD COLUMN IF NOT EXISTS topic_mastery JSONB NOT NULL DEFAULT '{}';`,
+		`ALTER TABLE cognitive_profiles ADD COLUMN IF NOT EXISTS readiness_score INT NOT NULL DEFAULT 50;`,
+		`ALTER TABLE cognitive_profiles ADD COLUMN IF NOT EXISTS recommended_actions JSONB NOT NULL DEFAULT '[]';`,
+		`ALTER TABLE cognitive_profiles ADD COLUMN IF NOT EXISTS total_doubts_asked INT NOT NULL DEFAULT 0;`,
+		`CREATE INDEX IF NOT EXISTS idx_cognitive_profiles_readiness ON cognitive_profiles (user_id, readiness_score);`,
+		`CREATE TABLE IF NOT EXISTS flashcard_decks (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			title VARCHAR(255) NOT NULL,
+			topic VARCHAR(255) NOT NULL,
+			difficulty VARCHAR(50) NOT NULL DEFAULT 'medium',
+			card_count INT NOT NULL DEFAULT 5,
+			cards JSONB NOT NULL DEFAULT '[]',
+			mastered_count INT NOT NULL DEFAULT 0,
+			is_pinned BOOLEAN NOT NULL DEFAULT FALSE,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_flashcard_decks_user_updated ON flashcard_decks(user_id, updated_at DESC);`,
+		`CREATE INDEX IF NOT EXISTS idx_flashcard_decks_user_topic ON flashcard_decks(user_id, topic);`,
+		`CREATE INDEX IF NOT EXISTS idx_flashcard_decks_cards_gin ON flashcard_decks USING GIN(cards);`,
 	}
 
 	for index, q := range queries {

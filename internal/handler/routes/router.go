@@ -73,6 +73,7 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 	noteRepo := repository.NewNoteRepo(db, logger)
 	syncRepo := repository.NewSyncRepo(db, logger)
 	mindMapRepo := repository.NewMindMapRepo(db, logger)
+	flashcardRepo := repository.NewFlashcardRepo(db, logger)
 
 	// 4. Domain & AI Services
 	aiOrchestrator := ai.NewOrchestrator(cfg.GeminiAPIKeys, cfg.OpenAIAPIKeys, cfg.ClaudeAPIKeys)
@@ -80,16 +81,19 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 	aiTutorService := services.NewAITutorService(aiOrchestrator, chatRepo, cognitiveRepo)
 	notesAnalyzerService := services.NewNotesAnalyzerService(aiOrchestrator, noteRepo)
 	diagramService := services.NewDiagramService(aiOrchestrator, mindMapRepo)
+	flashcardService := services.NewFlashcardService(flashcardRepo, aiOrchestrator, logger)
 	quizService := services.NewQuizService(quizRepo, cognitiveRepo, aiOrchestrator)
 	studyPlanService := services.NewStudyPlanService(studyPlanRepo, aiOrchestrator)
 	academicService := services.NewAcademicService(courseRepo, folderRepo, noteRepo)
 	syncService := services.NewSyncService(syncRepo)
 	pdfExportService := services.NewPDFExportService(noteRepo, quizRepo)
+	cognitiveService := services.NewCognitiveService(cognitiveRepo, chatRepo, aiOrchestrator, logger)
 
 	// 5. Domain Controllers
 	authCtrl := controller.NewAuthController(authService)
-	aiCtrl := controller.NewAIController(aiTutorService, notesAnalyzerService, diagramService)
+	aiCtrl := controller.NewAIController(aiTutorService, notesAnalyzerService, diagramService, flashcardService)
 	quizCtrl := controller.NewQuizController(quizService)
+	cognitiveCtrl := controller.NewCognitiveController(cognitiveService)
 	studyPlanCtrl := controller.NewStudyPlanController(studyPlanService)
 	academicCtrl := controller.NewAcademicController(academicService)
 	syncCtrl := controller.NewSyncController(syncService)
@@ -142,6 +146,29 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 				r.Put("/mindmaps/{id}", aiCtrl.UpdateMindMap)
 				r.Delete("/mindmaps/{id}", aiCtrl.DeleteMindMap)
 				r.Patch("/mindmaps/{id}/pin", aiCtrl.TogglePinMindMap)
+
+				// Flashcard Decks Persistence & CRUD (Anki-style Spaced Repetition)
+				r.Post("/flashcards/decks", aiCtrl.SaveFlashcardDeck)
+				r.Get("/flashcards/decks", aiCtrl.ListFlashcardDecks)
+				r.Get("/flashcards/decks/{id}", aiCtrl.GetFlashcardDeck)
+				r.Put("/flashcards/decks/{id}", aiCtrl.UpdateFlashcardDeck)
+				r.Delete("/flashcards/decks/{id}", aiCtrl.DeleteFlashcardDeck)
+				r.Patch("/flashcards/decks/{id}/pin", aiCtrl.TogglePinFlashcardDeck)
+			})
+		})
+
+		// Standalone Flashcards Route for Direct Access
+		r.Route("/flashcards", func(r chi.Router) {
+			r.With(middleware.OptionalJWTAuth(cfg.JwtSecret)).Post("/generate", aiCtrl.GenerateFlashcardDeck)
+			r.With(middleware.OptionalJWTAuth(cfg.JwtSecret)).Post("/review", aiCtrl.ReviewFlashcard)
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.JWTAuth(cfg.JwtSecret))
+				r.Get("/decks", aiCtrl.ListFlashcardDecks)
+				r.Post("/decks", aiCtrl.SaveFlashcardDeck)
+				r.Get("/decks/{id}", aiCtrl.GetFlashcardDeck)
+				r.Put("/decks/{id}", aiCtrl.UpdateFlashcardDeck)
+				r.Delete("/decks/{id}", aiCtrl.DeleteFlashcardDeck)
+				r.Patch("/decks/{id}/pin", aiCtrl.TogglePinFlashcardDeck)
 			})
 		})
 
@@ -154,10 +181,20 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 			r.Post("/{id}/submit", quizCtrl.SubmitQuiz)
 		})
 
-		// Student Cognitive AI Memory Profile
+		// Student Cognitive AI Memory Profile & Mastery Hub
 		r.Route("/profile/cognitive", func(r chi.Router) {
-			r.With(middleware.OptionalJWTAuth(cfg.JwtSecret)).Get("/", quizCtrl.GetCognitiveProfile)
-			r.With(middleware.JWTAuth(cfg.JwtSecret)).Put("/", quizCtrl.UpdateCognitiveProfile)
+			r.With(middleware.OptionalJWTAuth(cfg.JwtSecret)).Get("/", cognitiveCtrl.GetProfile)
+			r.With(middleware.JWTAuth(cfg.JwtSecret)).Put("/", cognitiveCtrl.UpdateGoals)
+			r.With(middleware.OptionalJWTAuth(cfg.JwtSecret)).Post("/diagnose", cognitiveCtrl.Diagnose)
+
+			// Authenticated Topic Mastery & Action Drills
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.JWTAuth(cfg.JwtSecret))
+				r.Post("/topics/promote", cognitiveCtrl.PromoteTopic)
+				r.Post("/topics/demote", cognitiveCtrl.DemoteTopic)
+				r.Delete("/topics", cognitiveCtrl.DeleteTopic)
+				r.Post("/activity", cognitiveCtrl.RecordActivity)
+			})
 		})
 
 		// Study Planner & Spaced Repetition Task Roadmap
