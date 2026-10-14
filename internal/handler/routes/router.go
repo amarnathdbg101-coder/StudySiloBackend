@@ -10,6 +10,7 @@ import (
 	"goProjectStructure/internal/handler/repository"
 	"goProjectStructure/internal/handler/services"
 	"goProjectStructure/internal/middleware"
+	"goProjectStructure/internal/reuse"
 	"goProjectStructure/internal/reuse/ai"
 	"goProjectStructure/internal/utils"
 
@@ -26,9 +27,10 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 
 	cfg := utils.MustLoad()
 
-	// Global Middlewares Pipeline (Order: RequestID -> Recoverer -> Compress -> ResponseTime -> Security -> Logger -> Idempotency -> CORS -> RateLimit)
+	// Global Middlewares Pipeline (Order: RequestID -> Recoverer -> GetHead -> Compress -> ResponseTime -> Security -> Logger -> Idempotency -> CORS -> RateLimit)
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer(logger))
+	r.Use(chimiddleware.GetHead)
 	r.Use(chimiddleware.Compress(5, "application/json", "text/html", "text/plain", "application/javascript", "text/css"))
 	r.Use(middleware.ResponseTimeHeader)
 	r.Use(middleware.SecurityHeaders)
@@ -37,6 +39,15 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 	r.Use(middleware.CORS)
 	limiter := middleware.NewIPRateLimiter(100, time.Minute, cfg.TrustedProxies...)
 	r.Use(limiter.Middleware())
+
+	// 0. Root Ping Endpoint for Uptime Monitors (UptimeRobot / Cron-Job) & Service Info
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		reuse.Success(w, "StudySilo API is operational", map[string]interface{}{
+			"status": "healthy",
+			"docs":   "/swagger/index.html",
+			"health": "/health",
+		})
+	})
 
 	// 1. Interactive Swagger Documentation UI
 	r.Get("/swagger/*", httpSwagger.WrapHandler)
