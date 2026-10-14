@@ -781,7 +781,6 @@ func (o *Orchestrator) GetProvider(providerName, modelName string) AIProvider {
 	if len(o.openaiKeys) > 0 {
 		return NewOpenAIProvider(o.openaiKeys, "gpt-4o-mini")
 	}
-
 	return nil
 }
 

@@ -59,6 +59,10 @@ func (c *AIController) SolveDoubt(w http.ResponseWriter, r *http.Request) {
 	if req.APIKey == "" {
 		if headerKey := r.Header.Get("X-Gemini-API-Key"); headerKey != "" {
 			req.APIKey = headerKey
+		} else if headerKey := r.Header.Get("X-Google-API-Key"); headerKey != "" {
+			req.APIKey = headerKey
+		} else if headerKey := r.Header.Get("X-OpenAI-API-Key"); headerKey != "" {
+			req.APIKey = headerKey
 		} else if headerKey := r.Header.Get("X-API-Key"); headerKey != "" {
 			req.APIKey = headerKey
 		}
@@ -109,6 +113,10 @@ func (c *AIController) SolveDoubtStream(w http.ResponseWriter, r *http.Request) 
 	}
 	if req.APIKey == "" {
 		if headerKey := r.Header.Get("X-Gemini-API-Key"); headerKey != "" {
+			req.APIKey = headerKey
+		} else if headerKey := r.Header.Get("X-Google-API-Key"); headerKey != "" {
+			req.APIKey = headerKey
+		} else if headerKey := r.Header.Get("X-OpenAI-API-Key"); headerKey != "" {
 			req.APIKey = headerKey
 		} else if headerKey := r.Header.Get("X-API-Key"); headerKey != "" {
 			req.APIKey = headerKey
@@ -164,14 +172,42 @@ func (c *AIController) SolveDoubtStream(w http.ResponseWriter, r *http.Request) 
 }
 
 func publicAIError(err error, apiKey string) string {
-	detail := strings.TrimSpace(err.Error())
+	if err == nil {
+		return "Unknown AI error occurred."
+	}
+	msg := strings.TrimSpace(err.Error())
+
 	if apiKey != "" {
-		detail = strings.ReplaceAll(detail, apiKey, "[redacted]")
+		msg = strings.ReplaceAll(msg, apiKey, "[redacted]")
 	}
-	if len(detail) > 600 {
-		detail = detail[:600] + "..."
+
+	lower := strings.ToLower(msg)
+
+	if strings.Contains(lower, "api_key_invalid") || strings.Contains(lower, "api key not valid") || strings.Contains(lower, "invalid_api_key") || strings.Contains(lower, "incorrect api key") {
+		return "Invalid API Key: The API key provided is invalid or inactive. Please check your Gemini or OpenAI API key in settings or .env file."
 	}
-	return "AI generation failed: " + detail
+
+	if strings.Contains(lower, "resource_exhausted") || strings.Contains(lower, "rate limit") || strings.Contains(lower, "429") || strings.Contains(lower, "quota") {
+		return "Quota / Rate Limit Exceeded: Your API key has exceeded its rate limit or free quota. Please wait 1 minute or use a new key."
+	}
+
+	if strings.Contains(lower, "no configured api key") || strings.Contains(lower, "no keys configured") {
+		return "No API Key Configured: Neither GEMINI_API_KEYS nor OPENAI_API_KEYS are set in server environment, and no custom API key was passed in request."
+	}
+
+	if strings.Contains(lower, "not found") || strings.Contains(lower, "404") {
+		return fmt.Sprintf("AI Model Not Found (404): The requested AI model ID was not found on provider API. Details: %s", truncateError(msg, 300))
+	}
+
+	return "AI Generation Error: " + truncateError(msg, 400)
+}
+
+func truncateError(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if len(s) > max {
+		return s[:max] + "..."
+	}
+	return s
 }
 
 // GetChatHistory returns multi-modal conversation history
