@@ -603,31 +603,33 @@ CRITICAL RULES FOR ACCURATE & RELIABLE VISUALS:
 
 	const globalFormattingDirectives = `
 ULTRA-FLEXIBLE RESPONSE ADAPTATION (DYNAMIC PATTERN MANDATE):
-1. DYNAMIC FORMAT ADAPTATION (NO RIGID PATTERNS):
-	- You are NOT bound to any single rigid structure, template, or heading pattern!
-	- Respect explicit requests for a short answer, a detailed explanation, a language, tone, or output format.
+1. DIRECT ANSWER & CLARITY FIRST:
+	- Always start with the direct, intuitive answer in the very first 1-2 sentences. Never stall or write filler introductory fluff.
+	- Respect explicit requests for a short answer, a detailed derivation, code, language, tone, or specific output format.
 	- If no depth is specified, infer the useful amount from the question; a long sentence alone does not mean the user wants a long answer.
 	- For everyday, general-knowledge, and conversational questions, answer naturally, not like an exam worksheet.
-	- Adapt your response structure organically to match the student's exact query intent, tone, and format.
-	- For casual, quick, or conversational questions ("hi", "thanks", "kaise ho", "kya kar rahe ho"): respond naturally and warmly in 1-2 friendly sentences without adding headings, tables, or exam sections.
-	- For code requests: provide clean code blocks with explanation.
-	- For math / derivations: use step-by-step LaTeX formula derivations ($$ ... $$).
-	- For conceptual questions: use clear paragraphs, analogies, bullet points, or visual diagrams as best fits the topic.
-	- Do NOT force fixed headings, exam tips, pitfalls, or summaries unless they genuinely add value to that specific query.
+	- For casual, quick greetings ("hi", "thanks", "kaise ho"): respond naturally and warmly in 1-2 friendly sentences.
+	- For substantial academic concepts, structure with clear markdown:
+	  * 💡 Core Concept & Intuitive Analogy
+	  * 📐 Step-by-Step Breakdown / Mathematical Derivation
+	  * ⚠️ Common Exam Traps & Misconceptions (what 90% students get wrong)
+	  * 🎯 High-Yield Exam Takeaway / Next Step
 
 2. EXAM & GRADE LEVEL CALIBRATION:
    - Adapt depth, vocabulary, and formulas strictly to the student's preparation level.
-   - If Class 9-10 / School level: Explain strictly within the 9th/10th grade school syllabus. Aisa bilkul na ho ki student 10th ka ho aur answer graduation/college level ka de do! DO NOT use university multivariable calculus, differential equations, advanced vectors, or graduate-level proofs.
-   - If Class 11-12 / JEE / NEET: Use senior secondary entrance depth.
-   - If College / B.Tech / University: Use full graduation-level rigor.
+   - If Class 9-10 / School level: Explain strictly within school syllabus using everyday analogies. DO NOT use advanced university calculus or graduate proofs.
+   - If Class 11-12 / JEE / NEET: Use senior secondary entrance depth with numerical problem-solving techniques.
+   - If College / B.Tech / University: Use full graduation-level rigor, proofs, and edge cases.
 
-3. MATHEMATICAL & SCIENTIFIC RIGOR:
-   - Use LaTeX: $$ ... $$ for standalone formulas, and $ ... $ for inline variables only.
-   - Never wrap plain words or descriptions in dollar signs (use **bold** instead).
-   - Never invent formulas or equations for non-mathematical topics.
+3. MATHEMATICAL & SCIENTIFIC RIGOR (KATEX READY):
+   - Standalone display equations MUST always be on their own separate line enclosed in $$ ... $$.
+   - Inline variables and short values must use $ ... $ (e.g. $F = ma$, $\theta = 30^\circ$).
+   - Never wrap plain words, descriptions, or units in dollar signs; use **bold** instead.
+   - Define all variables and physical SI units immediately under key formulas.
 
-4. MULTILINGUAL & HINGLISH AUTO-ADAPTATION:
-   - Match the student's language naturally (fluid Hinglish, Hindi, or Academic English).
+4. MULTILINGUAL & HINGLISH FLUENCY:
+   - When the student writes in Hinglish or Hindi, explain in natural, engaging Hinglish with simple terms.
+   - Avoid overly formal textbook Hindi; keep it friendly, motivating, and clear like an expert senior mentor.
 ` + masterDiagramDirectives
 
 	switch mode {
@@ -678,7 +680,7 @@ FEYNMAN TEACHING PROTOCOL:
 4. BUILD-UP TO FORMALISM:
    - Once intuition is rock-solid, introduce the mathematical form:
 $$
-oxed{	ext{Emergent Law}}
+\boxed{\text{Emergent Law}}
 $$
    - Show HOW the equation naturally emerges from the physical reality.
 5. FEYNMAN SEAL:

@@ -10,6 +10,9 @@ type GenerateQuizRequest struct {
 	NoteID        *string `json:"note_id" validate:"omitempty"`
 	Difficulty    string  `json:"difficulty" validate:"omitempty"`
 	QuestionCount int     `json:"question_count" validate:"omitempty"`
+	Provider      string  `json:"provider" validate:"omitempty"`
+	Model         string  `json:"model" validate:"omitempty"`
+	APIKey        string  `json:"api_key" validate:"omitempty"`
 }
 
 type QuestionAnswerInput struct {

@@ -68,6 +68,7 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 	cognitiveRepo := repository.NewCognitiveRepo(db, logger)
 	quizRepo := repository.NewQuizRepo(db, logger)
 	studyPlanRepo := repository.NewStudyPlanRepo(db, logger)
+	aiRoadmapRepo := repository.NewAIRoadmapRepo(db, logger) // AI roadmaps ke liye
 	courseRepo := repository.NewCourseRepo(db, logger)
 	folderRepo := repository.NewFolderRepo(db, logger)
 	noteRepo := repository.NewNoteRepo(db, logger)
@@ -83,7 +84,7 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 	diagramService := services.NewDiagramService(aiOrchestrator, mindMapRepo)
 	flashcardService := services.NewFlashcardService(flashcardRepo, aiOrchestrator, logger)
 	quizService := services.NewQuizService(quizRepo, cognitiveRepo, aiOrchestrator)
-	studyPlanService := services.NewStudyPlanService(studyPlanRepo, aiOrchestrator)
+	studyPlanService := services.NewStudyPlanService(studyPlanRepo, aiRoadmapRepo, aiOrchestrator)
 	academicService := services.NewAcademicService(courseRepo, folderRepo, noteRepo)
 	syncService := services.NewSyncService(syncRepo)
 	pdfExportService := services.NewPDFExportService(noteRepo, quizRepo)
@@ -177,7 +178,10 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 			r.Use(middleware.OptionalJWTAuth(cfg.JwtSecret))
 			r.Get("/", quizCtrl.ListQuizzes)
 			r.Post("/generate", quizCtrl.GenerateQuiz)
+			r.Get("/attempts", quizCtrl.ListAttempts)
 			r.Get("/{id}", quizCtrl.GetQuiz)
+			r.Delete("/{id}", quizCtrl.DeleteQuiz)
+			r.Get("/{id}/attempts", quizCtrl.ListAttempts)
 			r.Post("/{id}/submit", quizCtrl.SubmitQuiz)
 		})
 
@@ -207,6 +211,16 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 				r.Patch("/{id}", studyPlanCtrl.Update)
 				r.Delete("/{id}", studyPlanCtrl.Delete)
 			})
+		})
+
+		// AI Exam Study Roadmaps - CRUD (Save/List/Get/Update/Delete generated roadmaps)
+		r.Route("/roadmaps", func(r chi.Router) {
+			r.Use(middleware.JWTAuth(cfg.JwtSecret))
+			r.Get("/", studyPlanCtrl.ListRoadmaps)       // Saare roadmaps fetch karo
+			r.Post("/", studyPlanCtrl.SaveRoadmap)        // Naya roadmap save karo
+			r.Get("/{id}", studyPlanCtrl.GetRoadmap)      // Ek roadmap fetch karo
+			r.Patch("/{id}", studyPlanCtrl.UpdateRoadmap) // Roadmap update karo
+			r.Delete("/{id}", studyPlanCtrl.DeleteRoadmap) // Roadmap delete karo
 		})
 
 		// Focus Study Minutes & Streak Tracker

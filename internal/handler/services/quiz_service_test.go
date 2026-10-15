@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,6 +49,11 @@ func (m *mockQuizRepo) ListQuizzesByUser(ctx context.Context, userID string) ([]
 func (m *mockQuizRepo) SaveAttempt(ctx context.Context, attempt *model.QuizAttempt) error {
 	attempt.ID = "att-1"
 	m.attempts = append(m.attempts, attempt)
+	return nil
+}
+
+func (m *mockQuizRepo) DeleteQuiz(ctx context.Context, id, userID string) error {
+	delete(m.quizzes, id)
 	return nil
 }
 
@@ -294,6 +300,45 @@ func TestQuizService_UpdateCognitiveProfile(t *testing.T) {
 	}
 	if len(updated.ExamTraps) != 1 {
 		t.Errorf("expected 1 exam trap, got %v", updated.ExamTraps)
+	}
+}
+
+func TestQuizService_ResilientAIParserAndDomainFallback(t *testing.T) {
+	// 1. Verify resilient JSON parser with LaTeX and markdown wrapper
+	aiRaw := "```json\n" + `{
+		"questions": [
+			{
+				"question_text": "What is the time complexity of searching in a balanced BST?",
+				"options": ["O(log N)", "O(N)", "O(1)", "O(N^2)"],
+				"correct_option_index": 0,
+				"explanation": "Formula: \frac{N}{2} in balanced tree gives \log_2 N.",
+				"trap_warning": "Unbalanced trees degenerate to O(N).",
+				"difficulty": "medium",
+				"topic": "Binary Search Trees"
+			}
+		]
+	}` + "\n```"
+
+	parsed := parseAIQuizQuestions(aiRaw, "DSA", "medium")
+	if len(parsed) != 1 {
+		t.Fatalf("expected 1 question parsed from AI JSON, got %d", len(parsed))
+	}
+	if parsed[0].QuestionText != "What is the time complexity of searching in a balanced BST?" {
+		t.Errorf("unexpected question text: %s", parsed[0].QuestionText)
+	}
+	if parsed[0].CorrectOptionIndex != 0 {
+		t.Errorf("expected correct option index 0, got %d", parsed[0].CorrectOptionIndex)
+	}
+
+	// 2. Verify domain-aware fallback for coding topics (e.g. Python) does not return physics equations
+	codingQuestions := generateDomainQuestions("Python Loops", "medium", 3)
+	if len(codingQuestions) != 3 {
+		t.Fatalf("expected 3 questions, got %d", len(codingQuestions))
+	}
+	for _, q := range codingQuestions {
+		if strings.Contains(q.QuestionText, "\\oint") || strings.Contains(q.QuestionText, "Lyapunov") {
+			t.Errorf("coding fallback question contains physics equation: %s", q.QuestionText)
+		}
 	}
 }
 

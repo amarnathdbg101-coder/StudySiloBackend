@@ -39,6 +39,18 @@ func (c *QuizController) GenerateQuiz(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.APIKey == "" {
+		if headerKey := r.Header.Get("X-Gemini-API-Key"); headerKey != "" {
+			req.APIKey = headerKey
+		} else if headerKey := r.Header.Get("X-Google-API-Key"); headerKey != "" {
+			req.APIKey = headerKey
+		} else if headerKey := r.Header.Get("X-OpenAI-API-Key"); headerKey != "" {
+			req.APIKey = headerKey
+		} else if headerKey := r.Header.Get("X-API-Key"); headerKey != "" {
+			req.APIKey = headerKey
+		}
+	}
+
 	quiz, err := c.quizService.GenerateQuiz(r.Context(), userID, req)
 	if err != nil {
 		reuse.Error(w, http.StatusInternalServerError, err.Error())
@@ -82,6 +94,46 @@ func (c *QuizController) ListQuizzes(w http.ResponseWriter, r *http.Request) {
 
 	reuse.Success(w, "quizzes retrieved successfully", quizzes)
 }
+
+// DeleteQuiz deletes a quiz by ID
+func (c *QuizController) DeleteQuiz(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	userID := "guest-user"
+	if claims != nil && claims.UserID != "" {
+		userID = claims.UserID
+	}
+
+	quizID := chi.URLParam(r, "id")
+	if err := c.quizService.DeleteQuiz(r.Context(), quizID, userID); err != nil {
+		reuse.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	reuse.Success(w, "quiz deleted successfully", map[string]string{"id": quizID})
+}
+
+// ListAttempts retrieves past attempts for a quiz or for all quizzes by student
+func (c *QuizController) ListAttempts(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	userID := "guest-user"
+	if claims != nil && claims.UserID != "" {
+		userID = claims.UserID
+	}
+
+	quizID := chi.URLParam(r, "id")
+	if quizID == "" {
+		quizID = r.URL.Query().Get("quiz_id")
+	}
+
+	attempts, err := c.quizService.ListAttempts(r.Context(), userID, quizID)
+	if err != nil {
+		reuse.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	reuse.Success(w, "quiz attempts retrieved successfully", attempts)
+}
+
 
 // SubmitQuiz evaluates answers and automatically updates the student's cognitive memory profile
 func (c *QuizController) SubmitQuiz(w http.ResponseWriter, r *http.Request) {

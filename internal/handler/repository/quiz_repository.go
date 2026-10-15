@@ -17,6 +17,7 @@ type QuizRepository interface {
 	CreateQuizWithQuestions(ctx context.Context, quiz *model.Quiz, questions []*model.QuizQuestion) error
 	GetQuizByID(ctx context.Context, id, userID string) (*model.Quiz, error)
 	ListQuizzesByUser(ctx context.Context, userID string) ([]*model.Quiz, error)
+	DeleteQuiz(ctx context.Context, id, userID string) error
 	SaveAttempt(ctx context.Context, attempt *model.QuizAttempt) error
 	ListAttemptsByUser(ctx context.Context, userID, quizID string) ([]*model.QuizAttempt, error)
 }
@@ -224,3 +225,17 @@ func (r *quizRepo) ListAttemptsByUser(ctx context.Context, userID, quizID string
 	}
 	return attempts, rows.Err()
 }
+
+// DeleteQuiz deletes a quiz and its cascading questions/attempts
+func (r *quizRepo) DeleteQuiz(ctx context.Context, id, userID string) error {
+	query := `DELETE FROM quizzes WHERE id = $1 AND user_id = $2`
+	tag, err := r.db.Exec(ctx, query, id, userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete quiz: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return errors.New("quiz not found or unauthorized")
+	}
+	return nil
+}
+
