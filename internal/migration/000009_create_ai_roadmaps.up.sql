@@ -1,4 +1,4 @@
--- Migration 000008: Create AI Study Roadmaps Table
+-- Migration 000009: Create AI Study Roadmaps Table
 -- AI se generate hue exam roadmaps ko persist karne ke liye
 CREATE TABLE IF NOT EXISTS ai_roadmaps (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

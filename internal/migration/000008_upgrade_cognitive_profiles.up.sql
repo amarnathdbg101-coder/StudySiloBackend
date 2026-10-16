@@ -1,4 +1,4 @@
--- Migration 000007: Upgrade Cognitive Profiles Schema
+-- Migration 000008: Upgrade Cognitive Profiles Schema
 -- Adds AI diagnosis, dynamic topic mastery, readiness score, and activity counters
 
 ALTER TABLE cognitive_profiles ADD COLUMN IF NOT EXISTS ai_summary TEXT NOT NULL DEFAULT '';

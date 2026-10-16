@@ -1,4 +1,4 @@
--- Rollback migration 000007
+-- Rollback migration 000008
 ALTER TABLE cognitive_profiles DROP COLUMN IF EXISTS ai_summary;
 ALTER TABLE cognitive_profiles DROP COLUMN IF EXISTS topic_mastery;
 ALTER TABLE cognitive_profiles DROP COLUMN IF EXISTS readiness_score;
