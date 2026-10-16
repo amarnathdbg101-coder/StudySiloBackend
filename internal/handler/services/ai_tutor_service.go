@@ -90,9 +90,16 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 		}
 	}
 
-	systemPrompt := buildTutorPrompt(req.Mode, req.Question, req.ContextNotes, targetExam, academicLevel, weakTopics)
-	aiLanguage := middleware.GetAILanguage(ctx)
-	systemPrompt = systemPrompt + "\n\n" + ai.BuildLanguageInstruction(aiLanguage)
+	aiLanguage := strings.TrimSpace(req.AILanguage)
+	if aiLanguage == "" {
+		aiLanguage = strings.TrimSpace(req.Language)
+	}
+	if aiLanguage == "" {
+		aiLanguage = middleware.GetAILanguage(ctx)
+	}
+
+	langInstruction := ai.BuildLanguageInstruction(aiLanguage)
+	systemPrompt := langInstruction + "\n\n" + buildTutorPrompt(req.Mode, req.Question, req.ContextNotes, targetExam, academicLevel, weakTopics) + "\n\n" + langInstruction
 
 	// Resolve the session before loading its prior turns for conversational context.
 	sessionID := req.SessionID
@@ -109,6 +116,9 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 		history = conversationTurnsToMessages(req.ConversationHistory)
 	}
 	userQuery := buildTutorUserQuery(req.Question, req.ContextNotes, history)
+	if aiLanguage != "" && aiLanguage != "auto" && aiLanguage != "all" {
+		userQuery = fmt.Sprintf("%s\n\n[MANDATORY RESPONSE LANGUAGE: %s. Respond entirely in %s!]", userQuery, strings.ToUpper(aiLanguage), aiLanguage)
+	}
 
 	provider := req.Provider
 	if provider == "" {

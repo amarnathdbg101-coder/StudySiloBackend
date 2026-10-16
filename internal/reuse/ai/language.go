@@ -14,47 +14,81 @@ func BuildLanguageInstruction(lang string) string {
 
 	switch normalized {
 	case "hinglish":
-		return `MANDATORY LANGUAGE & TONE DIRECTIVE (STRICT HINGLISH):
-- You MUST write your ENTIRE explanation, point-by-point breakdown, definitions, formulas context, traps, and feedback STRICTLY in simple, natural HINGLISH (everyday conversational Hindi written in the English / Roman alphabet, Feynman technique style).
-- DO NOT use English paragraphs.
-- DO NOT use Devanagari script.
-- Even if the student asked their question in pure English or pure Hindi, your response MUST be exclusively in simple, conversational Hinglish.`
+		return `================================================================================
+🚨 CRITICAL OVERRIDING DIRECTIVE: STRICT HINGLISH RESPONSE MANDATORY 🚨
+================================================================================
+- Target Language: HINGLISH ONLY (Conversational Hindi written in English / Roman script, Feynman style).
+- ABSOLUTELY FORBIDDEN: Writing the explanation in pure English paragraphs!
+  ❌ NEVER DO THIS: "Merge sort is an efficient sorting algorithm based on divide and conquer..."
+  ✅ ALWAYS DO THIS: "Merge sort ek bahut hi efficient divide-and-conquer algorithm hai. Iska basic funda ye hai ki array ko tab tak recursively aadha-aadha todte raho jab tak single elements na bachein, aur fir unhe sorted order me merge kardo."
+- Point-by-Point Simplicity: Explain the concept step-by-step using simple, friendly Hinglish words.
+- Technical Keywords: Standard technical words, variable names, and LaTeX formulas are kept in English notation (e.g. O(N log N), arr[mid], recursion), but all sentences explaining them MUST be in natural Hinglish.
+- Absolute Rule: Even if the student's query is in 100% English (e.g., "Explain merge sort"), you MUST ignore the English query language and respond STRICTLY in HINGLISH as chosen in student settings.
+================================================================================`
 
 	case "english":
-		return `MANDATORY LANGUAGE & TONE DIRECTIVE (STRICT ENGLISH):
-- You MUST write your ENTIRE response strictly in clear, professional, fluent ENGLISH.
-- Even if the student asked their question in Hindi or Hinglish, your response MUST be exclusively in English.`
+		return `================================================================================
+🚨 CRITICAL OVERRIDING DIRECTIVE: STRICT ENGLISH MANDATORY 🚨
+================================================================================
+- Target Language: ENGLISH ONLY.
+- Deliver your ENTIRE explanation, point-by-point steps, and formulas in clear, professional, academic English.
+- Even if the student asked in Hindi or Hinglish, your response MUST be exclusively in English.
+================================================================================`
 
 	case "hindi":
-		return `MANDATORY LANGUAGE & TONE DIRECTIVE (STRICT HINDI):
-- You MUST write your ENTIRE response strictly in clear, academic HINDI using Devanagari script (हिन्दी).
-- Standard scientific/technical terms (e.g. CPU, Algorithm, Big-O, Entropy) may be kept in their standard technical notation alongside Hindi explanation.
-- Even if the student asked in English or Hinglish, your response MUST be in Hindi (Devanagari).`
+		return `================================================================================
+🚨 CRITICAL OVERRIDING DIRECTIVE: STRICT HINDI (DEVANAGARI) MANDATORY 🚨
+================================================================================
+- Target Language: HINDI ONLY in Devanagari script (हिन्दी).
+- Deliver your ENTIRE explanation in clean, student-friendly Hindi.
+- Standard scientific terms (e.g. CPU, Algorithm, Big-O, Entropy) can remain in standard notation alongside Hindi explanations.
+- Even if the student asked in English or Hinglish, your response MUST be in Hindi (Devanagari).
+================================================================================`
 
 	case "bengali":
-		return `MANDATORY LANGUAGE & TONE DIRECTIVE (STRICT BENGALI):
-- You MUST write your ENTIRE response strictly in clear, academic BENGALI (বাংলা).
-- Even if the student asked in another language, your response MUST be in Bengali.`
+		return `================================================================================
+🚨 CRITICAL OVERRIDING DIRECTIVE: STRICT BENGALI (বাংলা) MANDATORY 🚨
+================================================================================
+- Target Language: BENGALI ONLY (বাংলা).
+- Deliver your ENTIRE explanation in clear, student-friendly Bengali.
+- Even if the student asked in another language, your response MUST be in Bengali.
+================================================================================`
 
 	case "marathi":
-		return `MANDATORY LANGUAGE & TONE DIRECTIVE (STRICT MARATHI):
-- You MUST write your ENTIRE response strictly in clear, academic MARATHI (मराठी).
-- Even if the student asked in another language, your response MUST be in Marathi.`
+		return `================================================================================
+🚨 CRITICAL OVERRIDING DIRECTIVE: STRICT MARATHI (मराठी) MANDATORY 🚨
+================================================================================
+- Target Language: MARATHI ONLY (मराठी).
+- Deliver your ENTIRE explanation in clear, student-friendly Marathi.
+- Even if the student asked in another language, your response MUST be in Marathi.
+================================================================================`
 
 	case "tamil":
-		return `MANDATORY LANGUAGE & TONE DIRECTIVE (STRICT TAMIL):
-- You MUST write your ENTIRE response strictly in clear TAMIL (தமிழ்).
-- Even if the student asked in another language, your response MUST be in Tamil.`
+		return `================================================================================
+🚨 CRITICAL OVERRIDING DIRECTIVE: STRICT TAMIL (தமிழ்) MANDATORY 🚨
+================================================================================
+- Target Language: TAMIL ONLY (தமிழ்).
+- Deliver your ENTIRE explanation in clear, student-friendly Tamil.
+- Even if the student asked in another language, your response MUST be in Tamil.
+================================================================================`
 
 	case "telugu":
-		return `MANDATORY LANGUAGE & TONE DIRECTIVE (STRICT TELUGU):
-- You MUST write your ENTIRE response strictly in clear TELUGU (తెలుగు).
-- Even if the student asked in another language, your response MUST be in Telugu.`
+		return `================================================================================
+🚨 CRITICAL OVERRIDING DIRECTIVE: STRICT TELUGU (తెలుగు) MANDATORY 🚨
+================================================================================
+- Target Language: TELUGU ONLY (తెలుగు).
+- Deliver your ENTIRE explanation in clear, student-friendly Telugu.
+- Even if the student asked in another language, your response MUST be in Telugu.
+================================================================================`
 
 	case "gujarati":
-		return `MANDATORY LANGUAGE & TONE DIRECTIVE (STRICT GUJARATI):
-- You MUST write your ENTIRE response strictly in clear GUJARATI (ગુજરાતી).
-- Even if the student asked in another language, your response MUST be in Gujarati.`
+		return `================================================================================
+🚨 CRITICAL OVERRIDING DIRECTIVE: STRICT GUJARATI (ગુજરાતી) MANDATORY 🚨
+================================================================================
+- Target Language: GUJARATI ONLY (ગુજરાતી).
+- Deliver your ENTIRE explanation in clear, student-friendly Gujarati.
+- Even if the student asked in another language, your response MUST be in Gujarati.
+================================================================================`
 
 	case "auto", "all", "":
 		return `LANGUAGE & TONE DIRECTIVE (DYNAMIC USER TONE MATCHING):
@@ -62,8 +96,12 @@ func BuildLanguageInstruction(lang string) string {
 - You MUST respond in that EXACT SAME language and conversational tone that the student used in their prompt.`
 
 	default:
-		return fmt.Sprintf(`MANDATORY LANGUAGE & TONE DIRECTIVE (STRICT %s):
-- You MUST write your ENTIRE response strictly in clear, fluent %s.
-- Even if the student asked in another language, your response MUST be in %s.`, strings.ToUpper(normalized), normalized, normalized)
+		return fmt.Sprintf(`================================================================================
+🚨 CRITICAL OVERRIDING DIRECTIVE: STRICT %s MANDATORY 🚨
+================================================================================
+- Target Language: %s.
+- Deliver your ENTIRE explanation in clear, student-friendly %s.
+- Even if the student asked in another language, your response MUST be in %s.
+================================================================================`, strings.ToUpper(normalized), normalized, normalized, normalized)
 	}
 }

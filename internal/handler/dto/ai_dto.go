@@ -29,6 +29,8 @@ type DoubtRequest struct {
 	AcademicLevel        string             `json:"academic_level"`
 	WeakTopics           []string           `json:"weak_topics"`
 	APIKey               string             `json:"api_key,omitempty"`
+	AILanguage           string             `json:"ai_language,omitempty"`
+	Language             string             `json:"language,omitempty"`
 }
 
 type ConversationTurn struct {
@@ -182,6 +184,8 @@ type DiagramRequest struct {
 	Depth       int    `json:"depth" validate:"omitempty,min=1,max=5"`
 	Provider    string `json:"provider"`
 	Model       string `json:"model"`
+	AILanguage  string `json:"ai_language,omitempty"`
+	Language    string `json:"language,omitempty"`
 }
 
 type MindMapNode struct {
@@ -304,6 +308,8 @@ type ExpandNodeRequest struct {
 	Force       bool   `json:"force,omitempty"`
 	Provider    string `json:"provider,omitempty"`
 	Model       string `json:"model,omitempty"`
+	AILanguage  string `json:"ai_language,omitempty"`
+	Language    string `json:"language,omitempty"`
 }
 
 type ExpandNodeResponse struct {

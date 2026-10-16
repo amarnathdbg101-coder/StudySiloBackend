@@ -62,31 +62,24 @@ func (s *diagramService) GenerateDiagram(ctx context.Context, userID string, req
 	systemPrompt := `You are an elite academic Master Professor and Visual Knowledge Architect (combining Feynman's first-principles intuition, 3Blue1Brown's visual clarity, and top competitive exam rigor).
 Your mission is to generate a clean, point-by-point, highly engaging, and memorable visual mind map for the requested student concept.
 
-CRITICAL MIND MAP PEDAGOGY (POINT-BY-POINT, 100% FLEXIBLE TO THE TOPIC, ZERO FLUFF):
-1. MIND MAP PHILOSOPHY - "Simple Shabdon Me Bahut Kuch Keh Dena":
-   - NEVER write long, dense textbook paragraphs! Students get bored in 5 seconds.
-   - For every node, structure "details" and "description" as 2 to 3 crystal-clear, high-impact bullet points separated by newlines:
-     • Core Idea: 1 crisp mental model in simple, everyday words (Feynman technique).
-     • How It Works: Step-by-step operating rule or fundamental mechanism.
-     • High-Yield Exam Takeaway: The single most important takeaway or metric.
+CRITICAL MIND MAP PEDAGOGY (SIMPLE, POINT-BY-POINT, 100% FLEXIBLE TO THE TOPIC, ZERO AWKWARD BOXES):
+1. PURE POINT-BY-POINT CONTENT (JUST LIKE AN AI ASSISTANT):
+   - NEVER write long, dense textbook paragraphs!
+   - For every node, structure "details" and "description" as 3 to 4 crystal-clear, high-impact bullet points separated by newlines (• ...\n• ...).
+   - DO NOT use rigid canned prefixes like "Core Idea:", "How It Works:", "High-Yield Exam Takeaway:", "❌ False:", or "🎯 Viva:".
+   - Simply and directly explain that card's specific topic in friendly, simple words (Feynman style).
 2. 100% DYNAMIC & TOPIC-TAILORED (0% RIGID CANNED TEMPLATES):
    - Adapt 100% flexibly to the given topic's domain!
-   - Computer Science / Algorithms: Focus on state transitions, pointer invariants, Big-O trade-offs.
-   - Biology / Medicine: Focus on organelle pathways, physiological functions, enzyme yields.
-   - Physics / Engineering: Focus on physical intuition, governing forces, and conservation laws.
-   - Chemistry / Materials: Focus on molecular bonding, reaction kinetics, and thermodynamic spontaneity.
+   - Computer Science / Algorithms: Focus on state transitions, pointer logic, and time/space intuition.
+   - Biology / Medicine: Focus on pathways, physiological roles, and cellular functions.
+   - Physics / Engineering: Focus on physical intuition, governing forces, and conservation principles.
+   - Chemistry / Materials: Focus on molecular bonding, reaction kinetics, and spontaneity.
    - History / Humanities: Focus on causal triggers, turning points, and modern relevance.
-   - NEVER force computer science equations or unrelated formulas onto non-CS topics!
+   - NEVER force unrelated formulas onto non-mathematical topics!
 3. CRISP & MEANINGFUL LABELS:
    - "label": 2 to 4 words max. Punchy, clear, and scannable.
    - "subtitle": 2 to 5 words max describing the specific phase or role.
-4. TANGIBLE METRICS ("metrics"):
-   - 2 to 3 tangible specs relevant to this exact topic (e.g. units, typical values, Big-O, ATP yield, temperatures, dates).
-5. EXAM TRAP ("exam_trap"):
-   - Crisp student misconception in format: "❌ False: ... | ✅ Truth: ... | ⚠️ Examiner Twist: ...".
-6. VIVA & INTERVIEW DRILL ("viva_insight"):
-   - Sharp oral question & model answer: "🎯 Viva: ... | 💡 Answer: ...".
-7. FORMULAS ("formula_latex"):
+4. FORMULAS ("formula_latex"):
    - ONLY include KaTeX formula if naturally relevant to the topic. Otherwise leave as empty string.
 
 6 Specialized Domain Archetypes:
@@ -178,18 +171,29 @@ Output a single valid JSON object strictly matching this schema:
   "nodes": [],
   "edges": []
 }`
-	aiLanguage := middleware.GetAILanguage(ctx)
-	systemPrompt += ai.BuildLanguageInstruction(aiLanguage)
+	aiLanguage := strings.TrimSpace(req.AILanguage)
+	if aiLanguage == "" {
+		aiLanguage = strings.TrimSpace(req.Language)
+	}
+	if aiLanguage == "" {
+		aiLanguage = middleware.GetAILanguage(ctx)
+	}
+
+	langDirective := ai.BuildLanguageInstruction(aiLanguage)
+	systemPrompt = langDirective + "\n\n" + systemPrompt + "\n\n" + langDirective
 
 	userPrompt := fmt.Sprintf(`Topic / Concept: "%s"
 Diagram Type: %s
 Architectural Directives:
 - Build a clean, enjoyable, point-by-point visual mind map for "%s".
-- Simple shabdon me bahut kuch keh dena (Feynman style: zero long boring paragraphs, every node has 2-3 crisp bullet points).
-- 100%% flexible and tailored to this specific topic's domain (no canned CS templates if non-CS).
+- Simple shabdon me bahut kuch keh dena (Feynman style: zero long boring paragraphs, every node has 3-4 clean bullet points).
+- 100%% flexible and tailored to this specific topic's domain (no canned exam templates).
 - Select the best Archetype (tree, flow, cycle, comparison, hub, or stack) to represent this topic naturally.
-- Break down into 4 to 6 strong conceptual branches with 2 to 3 leaves each.
-- Include tangible specs in "metrics", sharp "exam_trap" gotchas, and tough "viva_insight" interview drills.`, req.Concept, diagramType, req.Concept)
+- Break down into 4 to 6 strong conceptual branches with 2 to 3 leaves each.`, req.Concept, diagramType, req.Concept)
+
+	if aiLanguage != "" && aiLanguage != "auto" && aiLanguage != "all" {
+		userPrompt += fmt.Sprintf("\n\n[MANDATORY RESPONSE LANGUAGE: %s. All node labels, subtitles, descriptions, and details MUST be written entirely in %s!]", strings.ToUpper(aiLanguage), aiLanguage)
+	}
 
 	var diagram dto.DiagramResponse
 	err := s.orchestrator.GenerateStructured(ctx, systemPrompt, userPrompt, &diagram)
@@ -391,15 +395,27 @@ Output JSON strictly matching:
     }
   ]
 }`
-	aiLanguage := middleware.GetAILanguage(ctx)
-	systemPrompt += ai.BuildLanguageInstruction(aiLanguage)
+	aiLanguage := strings.TrimSpace(req.AILanguage)
+	if aiLanguage == "" {
+		aiLanguage = strings.TrimSpace(req.Language)
+	}
+	if aiLanguage == "" {
+		aiLanguage = middleware.GetAILanguage(ctx)
+	}
+
+	langDirective := ai.BuildLanguageInstruction(aiLanguage)
+	systemPrompt = langDirective + "\n\n" + systemPrompt + "\n\n" + langDirective
 
 	userPrompt := fmt.Sprintf(`Topic: %s
 Parent Node: "%s"
 Parent Details: %s
 Force Expansion: %v
 Depth Level: %d
-Task: Evaluate cognitive saturation or generate 3 to 4 microscopic deep-dive sub-branches for "%s" in crisp point-by-point bullet format (zero long paragraphs, simple words).`, req.Concept, req.NodeLabel, req.NodeDetails, req.Force, req.NodeDepth, req.NodeLabel)
+Task: Evaluate cognitive saturation or generate 3 to 4 microscopic deep-dive sub-branches for "%s" in crisp point-by-point bullet format (zero long paragraphs, simple words, clean without rigid exam boxes).`, req.Concept, req.NodeLabel, req.NodeDetails, req.Force, req.NodeDepth, req.NodeLabel)
+
+	if aiLanguage != "" && aiLanguage != "auto" && aiLanguage != "all" {
+		userPrompt += fmt.Sprintf("\n\n[MANDATORY RESPONSE LANGUAGE: %s. All new node labels, descriptions, and details MUST be written entirely in %s!]", strings.ToUpper(aiLanguage), aiLanguage)
+	}
 
 	var resp dto.ExpandNodeResponse
 	resp.NodeID = req.NodeID
