@@ -492,6 +492,148 @@ func (c *AIController) ExpandMindMapNode(w http.ResponseWriter, r *http.Request)
 	reuse.Success(w, "node expanded successfully", resp)
 }
 
+// GenerateQuizFromMindMap converts mind map nodes and exam traps into an active recall quiz
+func (c *AIController) GenerateQuizFromMindMap(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	userID := ""
+	if claims != nil {
+		userID = claims.UserID
+	}
+
+	var req dto.MindMapToQuizRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		reuse.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := reuse.ValidateStruct(req); err != nil {
+		reuse.Error(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+
+	quiz, err := c.diagramService.GenerateQuizFromMindMap(r.Context(), userID, req)
+	if err != nil {
+		reuse.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	reuse.Success(w, "quiz generated successfully from mind map", quiz)
+}
+
+// GenerateFlashcardsFromMindMap converts mind map nodes into active recall spaced repetition flashcards
+func (c *AIController) GenerateFlashcardsFromMindMap(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	userID := ""
+	if claims != nil {
+		userID = claims.UserID
+	}
+
+	var req dto.MindMapToFlashcardRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		reuse.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := reuse.ValidateStruct(req); err != nil {
+		reuse.Error(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+
+	deck, err := c.diagramService.GenerateFlashcardsFromMindMap(r.Context(), userID, req)
+	if err != nil {
+		reuse.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	reuse.Success(w, "flashcards generated successfully from mind map", deck)
+}
+
+// ExportMindMapPDF exports the mind map as a high-resolution printable vector PDF poster
+func (c *AIController) ExportMindMapPDF(w http.ResponseWriter, r *http.Request) {
+	var req dto.ExportMindMapPDFRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		reuse.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if len(req.Nodes) == 0 {
+		reuse.Error(w, http.StatusUnprocessableEntity, "mind map must contain at least one node to export")
+		return
+	}
+
+	pdfBytes, err := c.diagramService.ExportMindMapPDF(r.Context(), req)
+	if err != nil {
+		reuse.Error(w, http.StatusInternalServerError, fmt.Sprintf("failed to export mind map PDF: %v", err))
+		return
+	}
+
+	safeTitle := strings.ReplaceAll(req.Title, " ", "_")
+	if safeTitle == "" {
+		safeTitle = "StudySilo_MindMap"
+	}
+
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s_Poster.pdf\"", safeTitle))
+	w.Header().Set("Content-Length", strconv.Itoa(len(pdfBytes)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(pdfBytes)
+}
+
+// ExportMindMapPDFByID loads a saved mind map by ID and exports it as a printable PDF poster
+func (c *AIController) ExportMindMapPDFByID(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	if claims == nil {
+		reuse.Error(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		reuse.Error(w, http.StatusBadRequest, "missing mind map id")
+		return
+	}
+
+	mindMap, err := c.diagramService.GetMindMap(r.Context(), claims.UserID, id)
+	if err != nil {
+		reuse.Error(w, http.StatusNotFound, "mind map not found")
+		return
+	}
+
+	var data dto.DiagramResponse
+	if err := json.Unmarshal(mindMap.Data, &data); err != nil {
+		reuse.Error(w, http.StatusInternalServerError, "failed to parse saved mind map data")
+		return
+	}
+
+	paperSize := r.URL.Query().Get("paper_size")
+	if paperSize == "" {
+		paperSize = "A4"
+	}
+
+	req := dto.ExportMindMapPDFRequest{
+		Title:     mindMap.Title,
+		Concept:   mindMap.Concept,
+		Archetype: data.Archetype,
+		Summary:   data.Summary,
+		Nodes:     data.Nodes,
+		Edges:     data.Edges,
+		PaperSize: paperSize,
+	}
+
+	pdfBytes, err := c.diagramService.ExportMindMapPDF(r.Context(), req)
+	if err != nil {
+		reuse.Error(w, http.StatusInternalServerError, fmt.Sprintf("failed to export mind map PDF: %v", err))
+		return
+	}
+
+	safeTitle := strings.ReplaceAll(mindMap.Title, " ", "_")
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s_Poster.pdf\"", safeTitle))
+	w.Header().Set("Content-Length", strconv.Itoa(len(pdfBytes)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(pdfBytes)
+}
+
 // ReviewFlashcard calculates the next Spaced Repetition interval using SuperMemo SM-2 algorithm
 func (c *AIController) ReviewFlashcard(w http.ResponseWriter, r *http.Request) {
 	var req dto.FlashcardReviewRequest

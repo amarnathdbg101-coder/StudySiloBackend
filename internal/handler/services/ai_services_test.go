@@ -383,7 +383,7 @@ func TestNotesAnalyzerService_Analyze(t *testing.T) {
 
 func TestDiagramService_Generate(t *testing.T) {
 	orch := ai.NewOrchestrator([]string{}, []string{}, []string{})
-	diagService := NewDiagramService(orch, nil)
+	diagService := NewDiagramService(orch, nil, nil, nil, nil)
 
 	ctx := context.Background()
 	req := dto.DiagramRequest{
@@ -476,7 +476,7 @@ func (m *mockMindMapRepo) TogglePin(ctx context.Context, userID, id string) (*mo
 func TestDiagramService_MindMapCRUD(t *testing.T) {
 	repo := &mockMindMapRepo{maps: make(map[string]*model.MindMap)}
 	orch := ai.NewOrchestrator([]string{}, []string{}, []string{})
-	diagService := NewDiagramService(orch, repo)
+	diagService := NewDiagramService(orch, repo, nil, nil, nil)
 	ctx := context.Background()
 	userID := "user-student-1"
 
@@ -546,4 +546,125 @@ func TestDiagramService_MindMapCRUD(t *testing.T) {
 		t.Error("expected error getting deleted mind map, got nil")
 	}
 }
+
+func TestDiagramService_Archetypes(t *testing.T) {
+	orch := ai.NewOrchestrator([]string{}, []string{}, []string{})
+	diagService := NewDiagramService(orch, nil, nil, nil, nil)
+	ctx := context.Background()
+
+	testCases := []struct {
+		concept   string
+		archetype string
+	}{
+		{"Glycolysis Pathway", "flow"},
+		{"Krebs Citric Acid Cycle", "cycle"},
+		{"TCP vs UDP", "comparison"},
+		{"Memory Hierarchy", "stack"},
+		{"Newton's Laws of Motion", "hub"},
+		{"Operating System Schedulers", "tree"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.concept, func(t *testing.T) {
+			resp, err := diagService.GenerateDiagram(ctx, "user-1", dto.DiagramRequest{
+				Concept: tc.concept,
+			})
+			if err != nil {
+				t.Fatalf("unexpected error for %s: %v", tc.concept, err)
+			}
+			if resp.Archetype != tc.archetype {
+				t.Errorf("expected archetype %s for %s, got %s", tc.archetype, tc.concept, resp.Archetype)
+			}
+			if len(resp.Nodes) == 0 {
+				t.Fatalf("expected non-empty nodes for %s", tc.concept)
+			}
+
+			// Validate rich schema requirements on nodes
+			hasFormula := false
+			hasTrap := false
+			for _, node := range resp.Nodes {
+				if node.FormulaLatex != "" {
+					hasFormula = true
+				}
+				if node.ExamTrap != "" {
+					hasTrap = true
+				}
+				if node.Shape == "" || node.Type == "" {
+					t.Errorf("node %s missing shape or type: shape=%q type=%q", node.ID, node.Shape, node.Type)
+				}
+			}
+			if !hasFormula {
+				t.Errorf("expected at least one KaTeX formula in %s", tc.concept)
+			}
+			if !hasTrap {
+				t.Errorf("expected at least one ExamTrap warning in %s", tc.concept)
+			}
+		})
+	}
+}
+
+func TestDiagramService_QuizAndFlashcards(t *testing.T) {
+	orch := ai.NewOrchestrator([]string{}, []string{}, []string{})
+	pdfService := NewPDFExportService(nil, nil)
+	diagService := NewDiagramService(orch, nil, nil, nil, pdfService)
+	ctx := context.Background()
+
+	diag, err := diagService.GenerateDiagram(ctx, "user-1", dto.DiagramRequest{
+		Concept: "Glycolysis Pathway",
+	})
+	if err != nil {
+		t.Fatalf("failed to generate diagram: %v", err)
+	}
+
+	// 1. Generate Quiz from Mind Map
+	quiz, err := diagService.GenerateQuizFromMindMap(ctx, "user-1", dto.MindMapToQuizRequest{
+		Concept:      diag.Concept,
+		Archetype:    diag.Archetype,
+		Nodes:        diag.Nodes,
+		NumQuestions: 3,
+		Difficulty:   "medium",
+	})
+	if err != nil {
+		t.Fatalf("failed to generate quiz from mind map: %v", err)
+	}
+	if quiz == nil || len(quiz.Questions) == 0 {
+		t.Fatal("expected quiz questions generated from mind map")
+	}
+	if len(quiz.Questions[0].Options) < 2 {
+		t.Errorf("expected multiple choice options, got %d", len(quiz.Questions[0].Options))
+	}
+
+	// 2. Generate Flashcards from Mind Map
+	deck, err := diagService.GenerateFlashcardsFromMindMap(ctx, "user-1", dto.MindMapToFlashcardRequest{
+		Concept:    diag.Concept,
+		Archetype:  diag.Archetype,
+		Nodes:      diag.Nodes,
+		CardCount:  4,
+		Difficulty: "medium",
+	})
+	if err != nil {
+		t.Fatalf("failed to generate flashcards from mind map: %v", err)
+	}
+	if deck == nil || len(deck.Cards) == 0 {
+		t.Fatal("expected flashcards generated from mind map")
+	}
+
+	// 3. Export PDF Poster
+	pdfBytes, err := diagService.ExportMindMapPDF(ctx, dto.ExportMindMapPDFRequest{
+		Title:     diag.Title,
+		Concept:   diag.Concept,
+		Archetype: diag.Archetype,
+		Summary:   diag.Summary,
+		Nodes:     diag.Nodes,
+		Edges:     diag.Edges,
+		PaperSize: "A4",
+	})
+	if err != nil {
+		t.Fatalf("failed to export mind map PDF poster: %v", err)
+	}
+	if len(pdfBytes) < 500 {
+		t.Errorf("exported PDF too small (%d bytes), expected > 500", len(pdfBytes))
+	}
+}
+
 

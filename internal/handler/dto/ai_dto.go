@@ -178,61 +178,78 @@ type StudentMistakesResponse struct {
 type DiagramRequest struct {
 	Concept     string `json:"concept" validate:"required,min=2"`
 	DiagramType string `json:"diagram_type" validate:"omitempty,oneof=mindmap flowchart concept_tree"`
+	Archetype   string `json:"archetype,omitempty" validate:"omitempty,oneof=cycle flow tree comparison hub stack auto"`
 	Depth       int    `json:"depth" validate:"omitempty,min=1,max=5"`
 	Provider    string `json:"provider"`
 	Model       string `json:"model"`
 }
 
 type MindMapNode struct {
-	ID          string            `json:"id"`
-	Label       string            `json:"label"`
-	Details     string            `json:"details"`
-	ColorHex    string            `json:"color_hex"`
-	BranchID    string            `json:"branch_id,omitempty"`
-	DomainType  string            `json:"domain_type,omitempty"`
-	KeyTakeaway string            `json:"key_takeaway,omitempty"`
-	ExamTrap    string            `json:"exam_trap,omitempty"`
-	Importance  int               `json:"importance,omitempty"`
-	Badge       string            `json:"badge,omitempty"`
-	Metrics     map[string]string `json:"metrics,omitempty"`
-	CodeSnippet string            `json:"code_snippet,omitempty"`
-	CrossLinks  []string          `json:"cross_links,omitempty"`
-	Formulas    []string          `json:"formulas,omitempty"`
-	Children    []*MindMapNode    `json:"children"`
+	ID           string            `json:"id"`
+	Label        string            `json:"label"`
+	Subtitle     string            `json:"subtitle,omitempty"`
+	Details      string            `json:"details,omitempty"`
+	Description  string            `json:"description,omitempty"`
+	Shape        string            `json:"shape,omitempty"` // "circle" | "box" | "diamond" | "capsule"
+	Type         string            `json:"type,omitempty"`  // "start" | "concept" | "process" | "equation" | "trap"
+	ColorHex     string            `json:"color_hex"`
+	BranchID     string            `json:"branch_id,omitempty"`
+	DomainType   string            `json:"domain_type,omitempty"`
+	KeyTakeaway  string            `json:"key_takeaway,omitempty"`
+	ExamTrap     string            `json:"exam_trap,omitempty"`
+	VivaInsight  string            `json:"viva_insight,omitempty"`
+	Importance   int               `json:"importance,omitempty"`
+	Badge        string            `json:"badge,omitempty"`
+	Metrics      map[string]string `json:"metrics,omitempty"`
+	CodeSnippet  string            `json:"code_snippet,omitempty"`
+	CrossLinks   []string          `json:"cross_links,omitempty"`
+	CrossSubject string            `json:"cross_subject,omitempty"`
+	Formulas     []string          `json:"formulas,omitempty"`
+	FormulaLatex string            `json:"formula_latex,omitempty"`
+	ChildrenIDs  []string          `json:"children_ids,omitempty"`
+	Children     []*MindMapNode    `json:"children"`
 }
 
 type GraphNode struct {
-	ID          string            `json:"id"`
-	Label       string            `json:"label"`
-	Description string            `json:"description,omitempty"`
-	NodeType    string            `json:"node_type,omitempty"`
-	BranchID    string            `json:"branch_id,omitempty"`
-	DomainType  string            `json:"domain_type,omitempty"`
-	KeyTakeaway string            `json:"key_takeaway,omitempty"`
-	ExamTrap    string            `json:"exam_trap,omitempty"`
-	Importance  int               `json:"importance,omitempty"`
-	Badge       string            `json:"badge,omitempty"`
-	Metrics     map[string]string `json:"metrics,omitempty"`
-	CodeSnippet string            `json:"code_snippet,omitempty"`
-	CrossLinks  []string          `json:"cross_links,omitempty"`
-	X           float64           `json:"x,omitempty"`
-	Y           float64           `json:"y,omitempty"`
-	Width       float64           `json:"width,omitempty"`
-	Height      float64           `json:"height,omitempty"`
-	Shape       string            `json:"shape,omitempty"`
-	ColorHex    string            `json:"color_hex"`
-	Formulas    []string          `json:"formulas,omitempty"`
+	ID           string            `json:"id"`
+	Label        string            `json:"label"`
+	Subtitle     string            `json:"subtitle,omitempty"`
+	Description  string            `json:"description,omitempty"`
+	Details      string            `json:"details,omitempty"`
+	NodeType     string            `json:"node_type,omitempty"` // "root" | "branch" | "leaf"
+	Type         string            `json:"type,omitempty"`      // "start" | "concept" | "process" | "equation" | "trap"
+	Shape        string            `json:"shape,omitempty"`     // "circle" | "box" | "diamond" | "capsule"
+	BranchID     string            `json:"branch_id,omitempty"`
+	DomainType   string            `json:"domain_type,omitempty"`
+	KeyTakeaway  string            `json:"key_takeaway,omitempty"`
+	ExamTrap     string            `json:"exam_trap,omitempty"`
+	VivaInsight  string            `json:"viva_insight,omitempty"`
+	Importance   int               `json:"importance,omitempty"`
+	Badge        string            `json:"badge,omitempty"`
+	Metrics      map[string]string `json:"metrics,omitempty"`
+	CodeSnippet  string            `json:"code_snippet,omitempty"`
+	CrossLinks   []string          `json:"cross_links,omitempty"`
+	CrossSubject string            `json:"cross_subject,omitempty"`
+	X            float64           `json:"x,omitempty"`
+	Y            float64           `json:"y,omitempty"`
+	Width        float64           `json:"width,omitempty"`
+	Height       float64           `json:"height,omitempty"`
+	ColorHex     string            `json:"color_hex"`
+	Formulas     []string          `json:"formulas,omitempty"`
+	FormulaLatex string            `json:"formula_latex,omitempty"`
+	ChildrenIDs  []string          `json:"children_ids,omitempty"`
 }
 
 type GraphEdge struct {
-	From        string `json:"from"`
-	To          string `json:"to"`
-	FromID      string `json:"from_id,omitempty"`
-	ToID        string `json:"to_id,omitempty"`
-	Label       string `json:"label"`
-	Arrow       bool   `json:"arrow"`
-	IsCrossLink bool   `json:"is_cross_link,omitempty"`
-	Style       string `json:"style,omitempty"`
+	From         string `json:"from"`
+	To           string `json:"to"`
+	FromID       string `json:"from_id,omitempty"`
+	ToID         string `json:"to_id,omitempty"`
+	Label        string `json:"label"`
+	Arrow        bool   `json:"arrow"`
+	IsCrossLink  bool   `json:"is_cross_link,omitempty"`
+	CrossSubject string `json:"cross_subject,omitempty"`
+	Style        string `json:"style,omitempty"` // "solid" | "dashed"
 }
 
 type DiagramResponse struct {
@@ -240,9 +257,40 @@ type DiagramResponse struct {
 	Title       string       `json:"title,omitempty"`
 	DiagramType string       `json:"diagram_type"`
 	DomainType  string       `json:"domain_type,omitempty"`
+	Archetype   string       `json:"archetype,omitempty"` // "cycle" | "flow" | "tree" | "comparison" | "hub" | "stack"
+	Summary     string       `json:"summary,omitempty"`
 	Root        *MindMapNode `json:"root,omitempty"`
 	Nodes       []GraphNode  `json:"nodes,omitempty"`
 	Edges       []GraphEdge  `json:"edges,omitempty"`
+}
+
+type MindMapToQuizRequest struct {
+	Title        string      `json:"title,omitempty"`
+	Concept      string      `json:"concept" validate:"required"`
+	Archetype    string      `json:"archetype,omitempty"`
+	Nodes        []GraphNode `json:"nodes" validate:"required,min=1"`
+	NumQuestions int         `json:"num_questions" validate:"omitempty,min=1,max=10"`
+	Difficulty   string      `json:"difficulty" validate:"omitempty,oneof=easy medium hard"`
+}
+
+type MindMapToFlashcardRequest struct {
+	Title      string      `json:"title,omitempty"`
+	Concept    string      `json:"concept" validate:"required"`
+	Archetype  string      `json:"archetype,omitempty"`
+	Nodes      []GraphNode `json:"nodes" validate:"required,min=1"`
+	CardCount  int         `json:"card_count" validate:"omitempty,min=3,max=20"`
+	Difficulty string      `json:"difficulty" validate:"omitempty,oneof=easy medium hard"`
+	SaveDeck   bool        `json:"save_deck"`
+}
+
+type ExportMindMapPDFRequest struct {
+	Title     string      `json:"title"`
+	Concept   string      `json:"concept"`
+	Archetype string      `json:"archetype,omitempty"`
+	Summary   string      `json:"summary,omitempty"`
+	Nodes     []GraphNode `json:"nodes"`
+	Edges     []GraphEdge `json:"edges"`
+	PaperSize string      `json:"paper_size,omitempty"` // "A4" | "A3"
 }
 
 type ExpandNodeRequest struct {
@@ -251,6 +299,7 @@ type ExpandNodeRequest struct {
 	NodeLabel   string `json:"node_label" validate:"required"`
 	NodeDetails string `json:"node_details,omitempty"`
 	BranchColor string `json:"branch_color,omitempty"`
+	MindMapID   string `json:"mind_map_id,omitempty"`
 	Provider    string `json:"provider,omitempty"`
 	Model       string `json:"model,omitempty"`
 }

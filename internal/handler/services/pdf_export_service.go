@@ -19,6 +19,7 @@ import (
 
 type PDFExportService interface {
 	ExportStudyPack(ctx context.Context, userID string, req dto.ExportPDFRequest) ([]byte, error)
+	ExportMindMapPoster(ctx context.Context, req dto.ExportMindMapPDFRequest) ([]byte, error)
 }
 
 type pdfExportService struct {
@@ -306,5 +307,244 @@ func (s *pdfExportService) exportWithGofpdf(title, content string, questions []*
 		return nil, fmt.Errorf("failed to generate PDF output: %w", err)
 	}
 
+	return buf.Bytes(), nil
+}
+
+func (s *pdfExportService) ExportMindMapPoster(ctx context.Context, req dto.ExportMindMapPDFRequest) ([]byte, error) {
+	title := req.Title
+	if title == "" {
+		title = req.Concept + " 4D Academic Mind Map"
+	}
+	htmlContent := buildMindMapPosterHTML(title, req.Archetype, req.Summary, req.Nodes, req.Edges)
+
+	// 1. Try headless Chrome (chromedp) for A3/A4 printable wall poster
+	cCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	defer cancel()
+
+	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.DisableGPU,
+		chromedp.NoSandbox,
+		chromedp.Headless,
+	)
+
+	allocCtx, allocCancel := chromedp.NewExecAllocator(cCtx, opts...)
+	defer allocCancel()
+
+	taskCtx, taskCancel := chromedp.NewContext(allocCtx)
+	defer taskCancel()
+
+	err := chromedp.Do(taskCtx,
+		chromedp.Navigate("data:text/html;charset=utf-8,"+url.PathEscape(htmlContent)),
+	)
+	if err == nil {
+		paper := chromedp.PaperA4
+		if strings.EqualFold(req.PaperSize, "A3") {
+			paper = chromedp.PaperA3
+		}
+		buf, pErr := chromedp.Run(taskCtx,
+			chromedp.PrintToPDF(
+				chromedp.PDFPaper(paper),
+				chromedp.PDFMargin(0.3),
+				chromedp.PDFPrintBackground(),
+			),
+		)
+		if pErr == nil && len(buf) > 100 {
+			return buf, nil
+		}
+	}
+
+	// 2. Fallback to gofpdf if chromedp is not available
+	return s.exportPosterWithGofpdf(title, req.Archetype, req.Summary, req.Nodes)
+}
+
+func buildMindMapPosterHTML(title, archetype, summary string, nodes []dto.GraphNode, edges []dto.GraphEdge) string {
+	var cardsHtml strings.Builder
+
+	for _, node := range nodes {
+		shapeClass := "node-box"
+		if node.Shape == "circle" {
+			shapeClass = "node-circle"
+		} else if node.Shape == "capsule" {
+			shapeClass = "node-capsule"
+		} else if node.Shape == "diamond" {
+			shapeClass = "node-diamond"
+		}
+
+		color := node.ColorHex
+		if color == "" {
+			color = "#4F46E5"
+		}
+
+		cardsHtml.WriteString(fmt.Sprintf(`<div class="node-card %s" style="border-left: 4px solid %s;">`, shapeClass, color))
+		cardsHtml.WriteString(fmt.Sprintf(`<div class="node-header">`))
+		cardsHtml.WriteString(fmt.Sprintf(`<span class="node-title">%s</span>`, html.EscapeString(node.Label)))
+		if node.Type != "" {
+			cardsHtml.WriteString(fmt.Sprintf(`<span class="badge" style="background:%s20; color:%s;">%s</span>`, color, color, html.EscapeString(node.Type)))
+		}
+		cardsHtml.WriteString(`</div>`)
+
+		if node.Subtitle != "" {
+			cardsHtml.WriteString(fmt.Sprintf(`<div class="node-sub">%s</div>`, html.EscapeString(node.Subtitle)))
+		}
+
+		desc := node.Description
+		if desc == "" {
+			desc = node.KeyTakeaway
+		}
+		if desc != "" {
+			cardsHtml.WriteString(fmt.Sprintf(`<p class="node-desc">%s</p>`, html.EscapeString(desc)))
+		}
+
+		// KaTeX / LaTeX Formula Block
+		formula := node.FormulaLatex
+		if formula == "" && len(node.Formulas) > 0 {
+			formula = node.Formulas[0]
+		}
+		if formula != "" {
+			cardsHtml.WriteString(fmt.Sprintf(`<div class="formula-box"><span class="formula-label">FORMULA</span><code>%s</code></div>`, html.EscapeString(formula)))
+		}
+
+		// Examiner Trap Warning
+		if node.ExamTrap != "" {
+			cardsHtml.WriteString(fmt.Sprintf(`<div class="trap-box"><strong>⚠️ Examiner Trap:</strong> %s</div>`, html.EscapeString(node.ExamTrap)))
+		}
+
+		// Viva / Interviewer Insight
+		if node.VivaInsight != "" {
+			cardsHtml.WriteString(fmt.Sprintf(`<div class="viva-box"><strong>💡 Viva Insight:</strong> %s</div>`, html.EscapeString(node.VivaInsight)))
+		}
+
+		// Cross-Subject Relational Link
+		if node.CrossSubject != "" {
+			cardsHtml.WriteString(fmt.Sprintf(`<div class="cross-subject-box"><strong>🌐 Cross-Subject:</strong> %s</div>`, html.EscapeString(node.CrossSubject)))
+		}
+
+		cardsHtml.WriteString(`</div>`)
+	}
+
+	archDisplay := archetype
+	if archDisplay == "" {
+		archDisplay = "Academic Concept Map"
+	}
+
+	return fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; margin: 20px; color: #0F172A; background: #FAFAFA; }
+  .poster-header { border-bottom: 3px solid #4F46E5; padding-bottom: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-end; }
+  .poster-brand { font-size: 26px; font-weight: 900; color: #4F46E5; letter-spacing: -0.5px; }
+  .archetype-pill { background: #EEF2FF; color: #4F46E5; padding: 4px 12px; border-radius: 999px; font-weight: 700; font-size: 12px; text-transform: uppercase; }
+  .title-banner { background: linear-gradient(135deg, #1E1B4B 0%%, #312E81 100%%); color: white; padding: 20px 24px; border-radius: 14px; margin-bottom: 22px; }
+  .title-banner h1 { margin: 0; font-size: 24px; font-weight: 800; }
+  .title-banner p { margin: 8px 0 0 0; opacity: 0.88; font-size: 13px; line-height: 1.4; }
+  .grid-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 16px; }
+  .node-card { background: white; border: 1px solid #E2E8F0; border-radius: 12px; padding: 14px; box-shadow: 0 2px 4px rgba(0,0,0,0.04); }
+  .node-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .node-title { font-weight: 800; font-size: 14px; color: #0F172A; }
+  .badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 6px; text-transform: uppercase; }
+  .node-sub { font-size: 11.5px; font-weight: 600; color: #64748B; margin-bottom: 8px; }
+  .node-desc { font-size: 12px; color: #334155; line-height: 1.4; margin: 0 0 10px 0; }
+  .formula-box { background: #0F172A; color: #38BDF8; padding: 8px 10px; border-radius: 8px; font-family: 'Consolas', monospace; font-size: 11.5px; margin-bottom: 8px; word-break: break-all; }
+  .formula-label { display: block; font-size: 8.5px; font-weight: 800; color: #7DD3FC; margin-bottom: 2px; }
+  .trap-box { background: #FEF2F2; border: 1px solid #FECACA; color: #991B1B; padding: 8px 10px; border-radius: 8px; font-size: 11px; margin-bottom: 8px; line-height: 1.35; }
+  .viva-box { background: #F0FDF4; border: 1px solid #BBF7D0; color: #166534; padding: 8px 10px; border-radius: 8px; font-size: 11px; margin-bottom: 8px; line-height: 1.35; }
+  .cross-subject-box { background: #FAF5FF; border: 1px solid #E9D5FF; color: #6B21A8; padding: 8px 10px; border-radius: 8px; font-size: 11px; margin-bottom: 8px; line-height: 1.35; }
+  .poster-footer { margin-top: 30px; padding-top: 12px; border-top: 1px solid #CBD5E1; font-size: 11px; color: #64748B; text-align: center; }
+</style>
+</head>
+<body>
+  <div class="poster-header">
+    <div class="poster-brand">StudySilo <span style="font-size:16px; font-weight:400; color:#64748B;">4D Mind Map</span></div>
+    <div class="archetype-pill">Archetype: %s</div>
+  </div>
+  <div class="title-banner">
+    <h1>%s</h1>
+    <p>%s</p>
+  </div>
+  <div class="grid-container">
+    %s
+  </div>
+  <div class="poster-footer">
+    StudySilo.in • High-Yield Academic Mind Map • Designed for Active Recall & Revision Posters
+  </div>
+</body>
+</html>`, html.EscapeString(archDisplay), html.EscapeString(title), html.EscapeString(summary), cardsHtml.String())
+}
+
+func (s *pdfExportService) exportPosterWithGofpdf(title, archetype, summary string, nodes []dto.GraphNode) ([]byte, error) {
+	pdf := gofpdf.New("P", "mm", "A4", "")
+	pdf.SetMargins(15, 15, 15)
+	pdf.SetAutoPageBreak(true, 15)
+
+	pdf.AddPage()
+	pdf.SetFont("Arial", "B", 18)
+	pdf.SetTextColor(79, 70, 229)
+	pdf.CellFormat(0, 10, "StudySilo 4D Mind Map Poster", "", 1, "L", false, 0, "")
+
+	pdf.SetFont("Arial", "B", 14)
+	pdf.SetTextColor(15, 23, 42)
+	pdf.MultiCell(0, 8, title, "", "L", false)
+	pdf.Ln(2)
+
+	if summary != "" {
+		pdf.SetFont("Arial", "", 10)
+		pdf.SetTextColor(71, 85, 105)
+		pdf.MultiCell(0, 5.5, summary, "", "L", false)
+		pdf.Ln(4)
+	}
+
+	for i, node := range nodes {
+		pdf.SetFillColor(248, 250, 252)
+		pdf.SetDrawColor(203, 213, 225)
+		pdf.SetFont("Arial", "B", 11)
+		pdf.SetTextColor(15, 23, 42)
+		pdf.CellFormat(0, 8, fmt.Sprintf("%d. %s [%s]", i+1, node.Label, node.Type), "1", 1, "L", true, 0, "")
+
+		if node.Subtitle != "" {
+			pdf.SetFont("Arial", "I", 9)
+			pdf.SetTextColor(100, 116, 139)
+			pdf.MultiCell(0, 5, "   "+node.Subtitle, "", "L", false)
+		}
+
+		desc := node.Description
+		if desc == "" {
+			desc = node.KeyTakeaway
+		}
+		if desc != "" {
+			pdf.SetFont("Arial", "", 9.5)
+			pdf.SetTextColor(51, 65, 85)
+			pdf.MultiCell(0, 5, "   "+desc, "", "L", false)
+		}
+
+		formula := node.FormulaLatex
+		if formula == "" && len(node.Formulas) > 0 {
+			formula = node.Formulas[0]
+		}
+		if formula != "" {
+			pdf.SetFont("Arial", "B", 9)
+			pdf.SetTextColor(14, 165, 233)
+			pdf.MultiCell(0, 5, "   Formula: "+formula, "", "L", false)
+		}
+
+		if node.ExamTrap != "" {
+			pdf.SetFont("Arial", "B", 9)
+			pdf.SetTextColor(220, 38, 38)
+			pdf.MultiCell(0, 5, "   Trap: "+node.ExamTrap, "", "L", false)
+		}
+
+		if node.VivaInsight != "" {
+			pdf.SetFont("Arial", "I", 9)
+			pdf.SetTextColor(22, 163, 74)
+			pdf.MultiCell(0, 5, "   Viva Insight: "+node.VivaInsight, "", "L", false)
+		}
+		pdf.Ln(3)
+	}
+
+	var buf bytes.Buffer
+	if err := pdf.Output(&buf); err != nil {
+		return nil, fmt.Errorf("failed to generate poster PDF: %w", err)
+	}
 	return buf.Bytes(), nil
 }
