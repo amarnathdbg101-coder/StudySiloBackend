@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -930,6 +931,10 @@ func cleanJSONString(raw string) string {
 			s = s[firstBrace : lastBrace+1]
 		}
 	}
+
+	// Strip trailing commas before closing braces/brackets (common LLM JSON error)
+	reTrailingComma := regexp.MustCompile(`,\s*([}\]])`)
+	s = reTrailingComma.ReplaceAllString(s, "$1")
 
 	return strings.TrimSpace(s)
 }

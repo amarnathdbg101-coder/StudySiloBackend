@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -53,14 +54,122 @@ func NewDiagramService(
 	}
 }
 
+// cleanConceptAndExtractIntent separates the clean canonical subject name from student conversational phrasing/instructions
+// (e.g. "merge sort ko deep me samjhao" -> Canonical: "Merge Sort", Directives: "Deep-dive technical depth...")
+func cleanConceptAndExtractIntent(raw string) (string, string) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "Core Academic Concept", "Provide a comprehensive conceptual breakdown."
+	}
+
+	lower := strings.ToLower(trimmed)
+	var directives []string
+
+	if strings.Contains(lower, "deep") || strings.Contains(lower, "depth") || strings.Contains(lower, "deeply") || strings.Contains(lower, "bariki") || strings.Contains(lower, "detail") {
+		directives = append(directives, "Student explicitly requested HIGH TECHNICAL DEPTH: Thoroughly explain internal mechanisms, pointer/state invariants, time/space trade-offs, and critical boundary edge-cases.")
+	}
+	if strings.Contains(lower, "step by step") || strings.Contains(lower, "phase") || strings.Contains(lower, "flow") || strings.Contains(lower, "kramvar") || strings.Contains(lower, "stages") {
+		directives = append(directives, "Student requested STEP-BY-STEP PROGRESSION: Structure major branches chronologically in sequential operational order.")
+	}
+	if strings.Contains(lower, "example") || strings.Contains(lower, "udaharan") || strings.Contains(lower, "code") || strings.Contains(lower, "real life") || strings.Contains(lower, "analog") {
+		directives = append(directives, "Student requested EXAMPLES / CODE: Embed practical examples, concrete analogies, or code snippets in the leaf nodes.")
+	}
+	if strings.Contains(lower, "formula") || strings.Contains(lower, "math") || strings.Contains(lower, "equation") || strings.Contains(lower, "derivation") || strings.Contains(lower, "latex") {
+		directives = append(directives, "Student requested MATHEMATICAL FORMULATION: Include KaTeX LaTeX formulas for all governing equations and laws.")
+	}
+	if strings.Contains(lower, "exam") || strings.Contains(lower, "trap") || strings.Contains(lower, "gotcha") || strings.Contains(lower, "viva") {
+		directives = append(directives, "Student requested EXAM SCORING FOCUS: Highlight tricky examiner traps and viva oral questions.")
+	}
+
+	if len(directives) == 0 {
+		directives = append(directives, "Deliver an intuitive, academically rigorous breakdown with foundational principles, step-by-step logic, and real-world relevance.")
+	}
+
+	// Clean out conversational filler words and query phrasing
+	cleaned := trimmed
+	patternsToRemove := []string{
+		// Hinglish / Hindi fillers (suffixes)
+		`(?i)\s*ko\s+deep\s+me\s+samjhao.*`,
+		`(?i)\s*ko\s+detail\s+me\s+samjhao.*`,
+		`(?i)\s*ko\s+detail\s+me\s+explain\s+karo.*`,
+		`(?i)\s*deep\s+me\s+samjhao.*`,
+		`(?i)\s*detail\s+me\s+samjhao.*`,
+		`(?i)\s*step\s+by\s+step\s+samjhao.*`,
+		`(?i)\s*step\s+by\s+step\s+explain\s+karo.*`,
+		`(?i)\s*ko\s+samjhao.*`,
+		`(?i)\s*samjhao.*`,
+		`(?i)\s*explain\s+karo.*`,
+		`(?i)\s*ka\s+mind\s*map\s+banao.*`,
+		`(?i)\s*ka\s+flowchart\s+banao.*`,
+		`(?i)\s*kya\s+hota\s+hai.*`,
+		`(?i)\s*kya\s+hai.*`,
+		`(?i)\s*batao.*`,
+		`(?i)\s*bataiye.*`,
+		// English fillers (suffixes)
+		`(?i)\s+in\s+deep\s+detail.*`,
+		`(?i)\s+in\s+detail.*`,
+		`(?i)\s+in\s+depth.*`,
+		`(?i)\s+step\s+by\s+step.*`,
+		`(?i)\s+deeply.*`,
+		`(?i)\s+with\s+examples.*`,
+		`(?i)\s+with\s+code.*`,
+		`(?i)\s+with\s+formulas.*`,
+		`(?i)\s+with\s+equations.*`,
+		`(?i)\s+with\s+derivations.*`,
+		// English prefixes
+		`(?i)^explain\s+to\s+me\s+about\s+`,
+		`(?i)^explain\s+to\s+me\s+`,
+		`(?i)^explain\s+about\s+`,
+		`(?i)^explain\s+`,
+		`(?i)^tell\s+me\s+about\s+`,
+		`(?i)^mind\s*map\s+of\s+`,
+		`(?i)^mind\s*map\s+for\s+`,
+		`(?i)^concept\s+of\s+`,
+		`(?i)^what\s+is\s+`,
+		`(?i)^how\s+does\s+`,
+	}
+
+	for _, p := range patternsToRemove {
+		re := regexp.MustCompile(p)
+		cleaned = re.ReplaceAllString(cleaned, "")
+	}
+
+	cleaned = strings.Trim(cleaned, " \t\r\n.,?!\"':;()[]{}-")
+	if cleaned == "" {
+		cleaned = trimmed
+	}
+
+	// Clean capitalization: e.g. "merge sort" -> "Merge Sort"
+	words := strings.Fields(cleaned)
+	for i, w := range words {
+		if len(w) > 0 {
+			words[i] = strings.ToUpper(w[:1]) + strings.ToLower(w[1:])
+		}
+	}
+	canonical := strings.Join(words, " ")
+
+	return canonical, strings.Join(directives, "\n- ")
+}
+
 func (s *diagramService) GenerateDiagram(ctx context.Context, userID string, req dto.DiagramRequest) (*dto.DiagramResponse, error) {
 	diagramType := req.DiagramType
 	if diagramType == "" {
 		diagramType = "mindmap"
 	}
 
+	canonicalConcept, studentDirectives := cleanConceptAndExtractIntent(req.Concept)
+
 	systemPrompt := `You are an elite academic Master Professor and Visual Knowledge Architect (combining Feynman's first-principles intuition, 3Blue1Brown's visual clarity, and top competitive exam rigor).
 Your mission is to generate a clean, point-by-point, highly engaging, and memorable visual mind map for the requested student concept.
+
+NATURAL LANGUAGE & CONVERSATIONAL QUERY HANDLING:
+The student may provide an informal conversational question or detailed prompt (e.g. "merge sort ko deep me samjhao", "explain photosynthesis step by step with ATP details", "operating system me paging technique ko example ke sath explain karo").
+YOU MUST:
+1. Focus strictly on the canonical subject ("concept" / root label). NEVER put conversational filler phrases like "ko deep me samjhao" or "explain please" into node labels!
+2. Fulfill the student's learning depth and specific instructions:
+   - If they ask for "deep" / "in depth" / "deep me": Generate comprehensive internal mechanisms, state invariants, time/space trade-offs, and boundary edge cases.
+   - If they ask for "examples" / "code": Provide concrete snippets, examples, or numbers in the leaf nodes.
+   - If they ask for "step by step": Lay out the branches in chronological / procedural sequence using the "flow" archetype.
 
 CRITICAL MIND MAP PEDAGOGY (SIMPLE, POINT-BY-POINT, 100% FLEXIBLE TO THE TOPIC, ZERO AWKWARD BOXES):
 1. PURE FLEXIBLE POINT-BY-POINT CONTENT (JUST LIKE AN AI ASSISTANT):
@@ -188,14 +297,26 @@ Output a single valid JSON object strictly matching this schema:
 	langDirective := ai.BuildLanguageInstruction(aiLanguage)
 	systemPrompt = langDirective + "\n\n" + systemPrompt + "\n\n" + langDirective
 
-	userPrompt := fmt.Sprintf(`Topic / Concept: "%s"
+	userPrompt := fmt.Sprintf(`Target Subject / Concept: "%s"
+Student's Specific Guidance & Intent: "%s"
 Diagram Type: %s
-Architectural Directives:
-- Build a clean, enjoyable, point-by-point visual mind map for "%s".
-- Simple shabdon me point-by-point (Feynman style: zero boring paragraphs; 100%% flexible point count: 1-2 points for simple terms, 2-4 points for mechanisms, 4-6 points for complex derivations).
-- 100%% flexible and tailored to this specific topic's domain (no canned templates or fixed 3-point limits).
-- Select the best Archetype (tree, flow, cycle, comparison, hub, or stack) to represent this topic naturally.
-- Break down into 4 to 6 strong conceptual branches with 2 to 3 leaves each.`, req.Concept, diagramType, req.Concept)
+
+CRITICAL ARCHITECTURAL DIRECTIVES:
+1. SUBJECT INTEGRITY:
+   - Primary academic subject: "%s".
+   - Use this canonical name ("%s") for the root node label, "concept", and "title".
+   - NEVER put conversational filler phrases (e.g. "ko deep me samjhao", "explain karo") in node labels or titles!
+2. STUDENT INTENT & DEPTH (HONOR THIS THOROUGHLY):
+   - The student specifically asked: "%s".
+   - %s
+   - Every branch and leaf node MUST be thoroughly tailored to satisfy this exact depth and focus!
+3. PEDAGOGICAL STRUCTURE:
+   - Break down into 4 to 5 major conceptual branches with 2 to 3 leaves each.
+   - Point-by-point clarity (Feynman style: zero boring paragraphs; 100%% flexible point count: 1-2 points for simple facts, 2-4 points for mechanisms, 4-6 points for complex derivations).
+   - Select the most natural Archetype (flow for processes/algorithms, cycle for loops, comparison for versus matrix, tree for classification, stack for layers, hub for physics/math concepts).`,
+		canonicalConcept, req.Concept, diagramType,
+		canonicalConcept, canonicalConcept,
+		req.Concept, studentDirectives)
 
 	if aiLanguage != "" && aiLanguage != "auto" && aiLanguage != "all" {
 		userPrompt += fmt.Sprintf("\n\n[MANDATORY RESPONSE LANGUAGE: %s. All node labels, subtitles, descriptions, and details MUST be written entirely in %s!]", strings.ToUpper(aiLanguage), aiLanguage)
@@ -211,22 +332,22 @@ Architectural Directives:
 
 	// Fallback data if unmarshaled empty (e.g. offline dev mode or parsing error)
 	if len(diagram.Nodes) == 0 {
-		diagram = buildDomainSmartMindMap(req.Concept, diagramType)
+		diagram = buildDomainSmartMindMap(canonicalConcept, diagramType)
 	}
 
 	// Normalize concept and title
 	if diagram.Concept == "" {
-		diagram.Concept = req.Concept
+		diagram.Concept = canonicalConcept
 	}
 	if diagram.Title == "" {
-		diagram.Title = diagram.Concept
+		diagram.Title = canonicalConcept
 	}
 	if diagram.DiagramType == "" {
 		diagram.DiagramType = diagramType
 	}
 
 	// Resolve and enforce the 6 Domain Archetypes (flow, cycle, comparison, stack, tree, hub)
-	lowerConcept := strings.ToLower(req.Concept)
+	lowerConcept := strings.ToLower(canonicalConcept + " " + req.Concept)
 	if req.Archetype != "" && req.Archetype != "auto" {
 		diagram.Archetype = req.Archetype
 	} else if diagram.Archetype == "" || diagram.Archetype == "auto" {

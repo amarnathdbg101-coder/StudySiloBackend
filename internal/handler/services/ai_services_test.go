@@ -713,4 +713,48 @@ func TestDiagramService_ExpandNodeSaturation(t *testing.T) {
 	}
 }
 
+func TestCleanConceptAndExtractIntent(t *testing.T) {
+	testCases := []struct {
+		input             string
+		expectedCanonical string
+		expectedDirective string
+	}{
+		{
+			input:             "merge sort ko deep me samjhao",
+			expectedCanonical: "Merge Sort",
+			expectedDirective: "HIGH TECHNICAL DEPTH",
+		},
+		{
+			input:             "photosynthesis step by step explain karo",
+			expectedCanonical: "Photosynthesis",
+			expectedDirective: "STEP-BY-STEP PROGRESSION",
+		},
+		{
+			input:             "explain deadlock in os with examples",
+			expectedCanonical: "Deadlock In Os",
+			expectedDirective: "EXAMPLES / CODE",
+		},
+		{
+			input:             "Newton's laws of motion with formulas",
+			expectedCanonical: "Newton's Laws Of Motion",
+			expectedDirective: "MATHEMATICAL FORMULATION",
+		},
+		{
+			input:             "Binary Search",
+			expectedCanonical: "Binary Search",
+			expectedDirective: "Deliver an intuitive",
+		},
+	}
+
+	for _, tc := range testCases {
+		canonical, directive := cleanConceptAndExtractIntent(tc.input)
+		if canonical != tc.expectedCanonical {
+			t.Errorf("for input %q: expected canonical %q, got %q", tc.input, tc.expectedCanonical, canonical)
+		}
+		if !strings.Contains(directive, tc.expectedDirective) {
+			t.Errorf("for input %q: expected directive containing %q, got %q", tc.input, tc.expectedDirective, directive)
+		}
+	}
+}
+
 
