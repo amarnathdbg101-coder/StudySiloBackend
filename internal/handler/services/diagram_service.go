@@ -11,6 +11,7 @@ import (
 	"goProjectStructure/internal/handler/dto"
 	"goProjectStructure/internal/handler/model"
 	"goProjectStructure/internal/handler/repository"
+	"goProjectStructure/internal/middleware"
 	"goProjectStructure/internal/reuse/ai"
 )
 
@@ -58,23 +59,35 @@ func (s *diagramService) GenerateDiagram(ctx context.Context, userID string, req
 		diagramType = "mindmap"
 	}
 
-	systemPrompt := `You are an elite academic Master Professor and Visual Knowledge Architect (combining Feynman's first-principles intuition, 3Blue1Brown's visual clarity, and top competitive exam rigor like JEE, NEET, GATE, and USMLE).
-Your mission is to generate a deep, engaging, scientifically rigorous, and high-yield visual mind map for the requested student concept.
+	systemPrompt := `You are an elite academic Master Professor and Visual Knowledge Architect (combining Feynman's first-principles intuition, 3Blue1Brown's visual clarity, and top competitive exam rigor).
+Your mission is to generate a clean, point-by-point, highly engaging, and memorable visual mind map for the requested student concept.
 
-CRITICAL PEDAGOGICAL RULES (NEVER VIOLATE):
-1. ZERO VAGUE PLACEHOLDERS: Never write generic statements like "Time & Space Complexity" without exact Big-O and conditions. Never just say "Crucial enzyme" without stating its specific active site mechanism and kinetic parameters.
-2. 3-PART DEEP LEARNING STRUCTURE FOR EVERY NODE'S DETAILS:
-   - 💡 Intuition: 1-2 sentences with a memorable real-world analogy or mental model (Feynman technique).
-   - ⚙️ Mechanism & Exact Logic: Precise scientific/algorithmic explanation of how it operates step-by-step.
-   - 📌 Key Takeaway: Concrete, high-yield factual or numerical takeaway.
-3. CONCRETE QUANTITATIVE METRICS: Every node MUST populate "metrics" with 2 to 4 tangible key-value pairs (e.g., Big-O time/space, SI units, threshold limits, typical temperatures, ATP yields, or throughput specs). NEVER leave empty!
-4. EXAM TRAP ("exam_trap"): Provide the #1 student misconception tested in competitive exams in format:
-   "❌ False Belief: [What 90% students answer wrong] | ✅ Truth: [Exact scientific principle] | ⚠️ Examiner Twist: [How tricky questions are designed]".
-5. VIVA & INTERVIEW DRILL ("viva_insight"): Practical interviewer/oral examiner question with sharp 2-line model answer:
-   "🎯 Viva Question: [Tough question] | 💡 Model Answer: [High-impact 2-line answer]".
-6. FORMULAS & EQUATIONS ("formula_latex"): When applicable, provide standard KaTeX LaTeX equations with variables cleanly formatted (e.g. "\Delta G^\circ = -RT \ln K_{eq}" or "T(n) = 2T(n/2) + \Theta(n)").
-7. ALGORITHM / CODE SNIPPET ("code_snippet"): For computer science, algorithms, or math topics, include a 2-4 line pseudocode, recurrence, or clean syntax invariant.
-8. CROSS-DISCIPLINARY LINKS ("cross_subject"): Interlink with other scientific or mathematical fields (e.g. "Physics ↔ Chemistry: Second Law of Thermodynamics").
+CRITICAL MIND MAP PEDAGOGY (POINT-BY-POINT, 100% FLEXIBLE TO THE TOPIC, ZERO FLUFF):
+1. MIND MAP PHILOSOPHY - "Simple Shabdon Me Bahut Kuch Keh Dena":
+   - NEVER write long, dense textbook paragraphs! Students get bored in 5 seconds.
+   - For every node, structure "details" and "description" as 2 to 3 crystal-clear, high-impact bullet points separated by newlines:
+     • Core Idea: 1 crisp mental model in simple, everyday words (Feynman technique).
+     • How It Works: Step-by-step operating rule or fundamental mechanism.
+     • High-Yield Exam Takeaway: The single most important takeaway or metric.
+2. 100% DYNAMIC & TOPIC-TAILORED (0% RIGID CANNED TEMPLATES):
+   - Adapt 100% flexibly to the given topic's domain!
+   - Computer Science / Algorithms: Focus on state transitions, pointer invariants, Big-O trade-offs.
+   - Biology / Medicine: Focus on organelle pathways, physiological functions, enzyme yields.
+   - Physics / Engineering: Focus on physical intuition, governing forces, and conservation laws.
+   - Chemistry / Materials: Focus on molecular bonding, reaction kinetics, and thermodynamic spontaneity.
+   - History / Humanities: Focus on causal triggers, turning points, and modern relevance.
+   - NEVER force computer science equations or unrelated formulas onto non-CS topics!
+3. CRISP & MEANINGFUL LABELS:
+   - "label": 2 to 4 words max. Punchy, clear, and scannable.
+   - "subtitle": 2 to 5 words max describing the specific phase or role.
+4. TANGIBLE METRICS ("metrics"):
+   - 2 to 3 tangible specs relevant to this exact topic (e.g. units, typical values, Big-O, ATP yield, temperatures, dates).
+5. EXAM TRAP ("exam_trap"):
+   - Crisp student misconception in format: "❌ False: ... | ✅ Truth: ... | ⚠️ Examiner Twist: ...".
+6. VIVA & INTERVIEW DRILL ("viva_insight"):
+   - Sharp oral question & model answer: "🎯 Viva: ... | 💡 Answer: ...".
+7. FORMULAS ("formula_latex"):
+   - ONLY include KaTeX formula if naturally relevant to the topic. Otherwise leave as empty string.
 
 6 Specialized Domain Archetypes:
 Detect the conceptual nature of the topic (or use requested archetype if provided) and populate "archetype":
@@ -88,8 +101,7 @@ Detect the conceptual nature of the topic (or use requested archetype if provide
 Structure Requirements:
 - 1 Central Root Node (comprehensive overview).
 - 4 to 6 Major Conceptual Branches (color-coded foundational pillars).
-- 2 to 3 Detailed Leaf Nodes per branch (deep-dive stations with formulas, metrics, and traps).
-- Populate "cross_links" with target node IDs if nodes causally influence each other.
+- 2 to 3 Detailed Leaf Nodes per branch (deep-dive stations with point-by-point insights).
 
 Output a single valid JSON object strictly matching this schema:
 {
@@ -103,12 +115,12 @@ Output a single valid JSON object strictly matching this schema:
     "id": "root_1",
     "label": "Core Concept Name",
     "subtitle": "Overview & Governing Scope",
-    "details": "💡 Intuition: Core mental model. ⚙️ Mechanism: Overarching scientific/logical foundation. 📌 Key Takeaway: Central thesis.",
-    "description": "💡 Intuition: Core mental model. ⚙️ Mechanism: Overarching scientific/logical foundation. 📌 Key Takeaway: Central thesis.",
+    "details": "• Core Idea: Simple crystal-clear intuition\n• Core Mechanism: Governing law or thesis\n• High-Yield Takeaway: Central foundation",
+    "description": "• Core Idea: Simple crystal-clear intuition\n• Core Mechanism: Governing law or thesis\n• High-Yield Takeaway: Central foundation",
     "shape": "circle",
     "type": "concept",
     "color_hex": "#4F46E5",
-    "domain_type": "algorithm",
+    "domain_type": "general",
     "formula_latex": "",
     "key_takeaway": "Central foundation connecting all surrounding branches",
     "exam_trap": "",
@@ -122,16 +134,16 @@ Output a single valid JSON object strictly matching this schema:
         "id": "branch_1",
         "label": "Branch Name",
         "subtitle": "Pillar focus area",
-        "details": "💡 Intuition: Mental model. ⚙️ Mechanism: Core governing law or structural architecture. 📌 Key Takeaway: Critical branch law.",
-        "description": "💡 Intuition: Mental model. ⚙️ Mechanism: Core governing law or structural architecture. 📌 Key Takeaway: Critical branch law.",
+        "details": "• Key Rule: Core principle in simple words\n• How it operates: Step-by-step mechanism\n• Exam Takeaway: Crucial pillar insight",
+        "description": "• Key Rule: Core principle in simple words\n• How it operates: Step-by-step mechanism\n• Exam Takeaway: Crucial pillar insight",
         "shape": "box",
         "type": "process",
         "color_hex": "#6366F1",
-        "domain_type": "algorithm",
+        "domain_type": "general",
         "formula_latex": "",
         "key_takeaway": "Core takeaway for this branch",
         "exam_trap": "❌ False: ... | ✅ Truth: ... | ⚠️ Examiner Twist: ...",
-        "viva_insight": "🎯 Viva Question: ... | 💡 Model Answer: ...",
+        "viva_insight": "🎯 Viva: ... | 💡 Answer: ...",
         "importance": 5,
         "badge": "Major Pillar",
         "metrics": {"Key": "Value"},
@@ -141,20 +153,20 @@ Output a single valid JSON object strictly matching this schema:
             "id": "leaf_1_1",
             "label": "Specific Law / Topic",
             "subtitle": "Sub-mechanism & Phase",
-            "details": "💡 Intuition: Vivid analogy. ⚙️ Mechanism: Step-by-step operational mechanics. 📌 Key Takeaway: Crucial fact.",
-            "description": "💡 Intuition: Vivid analogy. ⚙️ Mechanism: Step-by-step operational mechanics. 📌 Key Takeaway: Crucial fact.",
+            "details": "• Intuition: Simple analogy or mental hook\n• Mechanism: Step-by-step working logic\n• Pro Tip: High-yield scoring fact",
+            "description": "• Intuition: Simple analogy or mental hook\n• Mechanism: Step-by-step working logic\n• Pro Tip: High-yield scoring fact",
             "shape": "capsule",
-            "type": "equation",
+            "type": "concept",
             "color_hex": "#818CF8",
-            "domain_type": "algorithm",
-            "formula_latex": "\\Delta G = \\Delta H - T\\Delta S",
+            "domain_type": "general",
+            "formula_latex": "",
             "key_takeaway": "Key exam takeaway",
             "exam_trap": "❌ False: ... | ✅ Truth: ... | ⚠️ Examiner Twist: ...",
-            "viva_insight": "🎯 Viva Question: ... | 💡 Model Answer: ...",
-            "cross_subject": "Physics ↔ Chemistry",
+            "viva_insight": "🎯 Viva: ... | 💡 Answer: ...",
+            "cross_subject": "",
             "importance": 4,
             "badge": "Key Law",
-            "metrics": {"Best": "O(N log N)", "Worst": "O(N^2)"},
+            "metrics": {"Key": "Value"},
             "code_snippet": "",
             "cross_links": [],
             "formulas": []
@@ -166,15 +178,18 @@ Output a single valid JSON object strictly matching this schema:
   "nodes": [],
   "edges": []
 }`
+	aiLanguage := middleware.GetAILanguage(ctx)
+	systemPrompt += ai.BuildLanguageInstruction(aiLanguage)
 
 	userPrompt := fmt.Sprintf(`Topic / Concept: "%s"
 Diagram Type: %s
 Architectural Directives:
-- Build a master-grade, highly engaging visual mind map for "%s".
+- Build a clean, enjoyable, point-by-point visual mind map for "%s".
+- Simple shabdon me bahut kuch keh dena (Feynman style: zero long boring paragraphs, every node has 2-3 crisp bullet points).
+- 100%% flexible and tailored to this specific topic's domain (no canned CS templates if non-CS).
 - Select the best Archetype (tree, flow, cycle, comparison, hub, or stack) to represent this topic naturally.
-- Break down into 4 to 6 strong conceptual branches (e.g. Foundations & Axioms, Step-by-step Mechanics, Mathematical Derivations, Edge Cases & Failure Modes, Real-world Benchmarks).
-- For every node, deliver rich 3-part details (💡 Intuition analogy + ⚙️ Technical mechanism + 📌 Key Takeaway).
-- Include concrete numbers/complexities in "metrics", precise KaTeX equations in "formula_latex", razor-sharp "exam_trap" gotchas, and tough "viva_insight" interview drills.`, req.Concept, diagramType, req.Concept)
+- Break down into 4 to 6 strong conceptual branches with 2 to 3 leaves each.
+- Include tangible specs in "metrics", sharp "exam_trap" gotchas, and tough "viva_insight" interview drills.`, req.Concept, diagramType, req.Concept)
 
 	var diagram dto.DiagramResponse
 	err := s.orchestrator.GenerateStructured(ctx, systemPrompt, userPrompt, &diagram)
@@ -255,9 +270,9 @@ Architectural Directives:
 	return &diagram, err
 }
 
-// isNodeCognitivelySaturated evaluates if expanding a node will create cognitive overload,
-// redundancy, or trivial noise (e.g. leaf complexity values like O(N log N), atomic constants, depth limit).
-func isNodeCognitivelySaturated(nodeLabel, nodeDetails string, depth int) (bool, string) {
+// isFallbackTerminalConcept provides an offline heuristic ONLY when AI provider is completely unreachable.
+// It checks whether a concept is an inherently terminal metric (like asymptotic bounds), with NO arbitrary depth limits.
+func isFallbackTerminalConcept(nodeLabel, nodeDetails string) (bool, string) {
 	labelLower := strings.ToLower(nodeLabel)
 	detailsLower := strings.ToLower(nodeDetails)
 
@@ -285,70 +300,55 @@ func isNodeCognitivelySaturated(nodeLabel, nodeDetails string, depth int) (bool,
 		}
 	}
 
-	// 3. Exam trap / Gotchas leaf nodes (already focused takeaway)
-	if strings.Contains(labelLower, "gotchas") || strings.Contains(labelLower, "examiner trap") || strings.Contains(labelLower, "pitfall") {
-		return true, fmt.Sprintf("'%s' already ek high-yield exam warning takeaway hai. Isse aur break down karne ki zaroorat nahi hai.", nodeLabel)
-	}
-
-	// 4. Depth threshold (depth >= 3 is already a 4th-level micro leaf)
-	if depth >= 3 {
-		return true, fmt.Sprintf("Yeh node depth level %d (atomic micro-branch) par hai. Isse zyada expand karne par mind map clutter aur confusing ho jayega.", depth)
-	}
-
 	return false, ""
 }
 
 func (s *diagramService) ExpandNode(ctx context.Context, userID string, req dto.ExpandNodeRequest) (*dto.ExpandNodeResponse, error) {
-	// Cognitive Saturation Guard:
-	// If force is false, check if the node has reached an atomic leaf state (e.g. O(N log N) complexity, constant, depth >= 3)
-	if !req.Force {
-		if saturated, reason := isNodeCognitivelySaturated(req.NodeLabel, req.NodeDetails, req.NodeDepth); saturated {
-			return &dto.ExpandNodeResponse{
-				NodeID:           req.NodeID,
-				CanExpand:        false,
-				IsSaturated:      true,
-				SaturationReason: reason,
-				NewNodes:         []dto.GraphNode{},
-				NewEdges:         []dto.GraphEdge{},
-			}, nil
-		}
-	}
-
 	systemPrompt := `You are an elite academic Master Professor and Visual Concept Architect.
-The student is exploring an interactive 4D Mind Map for: "` + req.Concept + `".
+The student is exploring an interactive 4D Mind Map for the subject / concept: "` + req.Concept + `".
 They tapped on node: "` + req.NodeLabel + `" (Details: ` + req.NodeDetails + `) and requested an expansion.
 Force expansion flag: ` + fmt.Sprintf("%v", req.Force) + `.
 
-Pedagogical Depth & Cognitive Saturation Rules:
-- Evaluate whether expanding this node further has high educational yield OR if it has reached atomic/fundamental depth where further splitting creates unnecessary noise, trivial facts, or cognitive confusion (e.g., trying to split an asymptotic complexity value like 'O(N log N)', an atomic constant, or a leaf takeaway).
-- If force is FALSE and the node has reached atomic saturation:
-  Set "can_expand": false, "is_saturated": true, "saturation_reason": "Crisp 1-2 line explanation in Hinglish/English explaining why further splitting creates cognitive clutter or is academically unnecessary.", "new_nodes": [], "new_edges": [].
-- If force is TRUE:
-  ALWAYS expand into microscopic mechanics, micro-architecture cache lines, CPU branch prediction, low-level pointers, or niche boundary derivations regardless of saturation.
-- If force is FALSE and the node genuinely has rich hierarchical sub-mechanisms:
-  Set "can_expand": true, "is_saturated": false, and generate exactly 3 to 4 sub-branches.
+CRITICAL RULE - DYNAMIC LOGICAL EXPANSION DECISION (ZERO FIXED COUNT / NO ARBITRARY DEPTH LIMIT):
+You MUST dynamically and logically evaluate the academic question and concept:
+1. Do NOT use any arbitrary or fixed rule like "stop after 3 expansions" or fixed depth counter.
+2. Deeply analyze:
+   - Does this topic/node ("` + req.NodeLabel + `") in the context of "` + req.Concept + `" have genuine, pedagogically productive sub-mechanisms, internal operations, or derivations that will help the student understand better?
+   - OR has it already reached an atomic, terminal, or fundamental definition level (such as an indivisible constant, a single asymptotic complexity bound, a closed-form formula, or an exam takeaway) where further splitting would create cognitive clutter, trivial pedantry, or conceptual confusion?
+3. If force is FALSE and you logically determine that expanding this concept further is NOT meaningful or would confuse the student:
+   - Set "can_expand": false
+   - Set "is_saturated": true
+   - Set "saturation_reason": A personalized, insightful 1 to 2 line explanation in Hinglish/English directly addressing WHY "` + req.NodeLabel + `" in the context of "` + req.Concept + `" shouldn't be fragmented further.
+   - Set "new_nodes": []
+   - Set "new_edges": []
+4. If force is TRUE:
+   - Always expand into microscopic internal mechanics, low-level architecture, CPU/hardware execution, or edge-case boundary proofs.
+5. If force is FALSE and you logically determine that expanding IS conceptually productive and meaningful:
+   - Set "can_expand": true
+   - Set "is_saturated": false
+   - Set "saturation_reason": ""
+   - Generate exactly 3 to 4 high-yield, distinct sub-branches.
 
 Pedagogical Content Rules:
-- NEVER REPEAT parent info. Provide fresh, microscopic-level deep dives.
-- For each sub-branch node's description:
-  1. 💡 Intuition: A crisp, 1-line mental model or analogy.
-  2. ⚙️ Mechanism: Step-by-step technical explanation.
-  3. 📌 Takeaway: 1 high-yield revision bullet.
-- "metrics": Provide 2 to 4 tangible specs (e.g. Big-O, units, limits, benchmarks).
-- "formula_latex": Primary KaTeX formula for this sub-concept if applicable.
-- "exam_trap": Specific student gotcha in format: "❌ False: ... | ✅ Truth: ... | ⚠️ Examiner Twist: ...".
-- "viva_insight": Tough oral/interview question with 2-line model answer: "🎯 Viva: ... | 💡 Answer: ...".
+- ZERO LONG PARAGRAPHS: Students want point-by-point, bite-sized clarity.
+- For each sub-branch node's description and details:
+  Provide exactly 2 to 3 crisp bullet points separated by newlines:
+  • Core Idea: Punchy mental model in simple, everyday words.
+  • How it Operates: Micro-mechanism or step-by-step execution.
+  • Exam / Viva Tip: The single most important takeaway.
+- 100% flexible to the topic domain. No rigid boilerplate or irrelevant formulas.
+- Crisp labels (2 to 4 words max).
 
 For EVERY generated sub-branch node provide:
 1. "id": Unique string (e.g. "` + req.NodeID + `_sub_1").
-2. "label": Crisp title (2 to 5 words).
+2. "label": Crisp title (2 to 4 words).
 3. "subtitle": Specific sub-context or focus area.
-4. "description": Deep technical explanation with 💡 Intuition, ⚙️ Mechanism, and 📌 Takeaway.
+4. "description": 2 to 3 bullet points separated by newlines (• ...\n• ...).
 5. "details": Same content as description.
 6. "shape": "capsule" | "box" | "diamond".
 7. "type": "process" | "equation" | "concept" | "trap".
-8. "formula_latex": Primary KaTeX formula if applicable.
-9. "exam_trap": Examiner mistake or pitfall in "❌ False: ... | ✅ Truth: ... | ⚠️ Examiner Twist: ..." format.
+8. "formula_latex": Primary KaTeX formula ONLY if mathematically relevant.
+9. "exam_trap": Specific student gotcha: "❌ False: ... | ✅ Truth: ... | ⚠️ Examiner Twist: ...".
 10. "viva_insight": Practical interviewer insight: "🎯 Viva: ... | 💡 Answer: ...".
 11. "cross_subject": Cross-subject interlink if applicable.
 12. "importance": Integer 1 to 5.
@@ -366,14 +366,14 @@ Output JSON strictly matching:
       "id": "` + req.NodeID + `_sub_1",
       "label": "Deep Sub-concept",
       "subtitle": "Internal Mechanism",
-      "description": "💡 Intuition: ... ⚙️ Mechanism: ... 📌 Takeaway: ...",
-      "details": "💡 Intuition: ... ⚙️ Mechanism: ... 📌 Takeaway: ...",
+      "description": "• Core Idea: Crisp intuition\n• Mechanism: Step-by-step logic\n• Key Takeaway: High-yield fact",
+      "details": "• Core Idea: Crisp intuition\n• Mechanism: Step-by-step logic\n• Key Takeaway: High-yield fact",
       "shape": "capsule",
       "type": "process",
-      "formula_latex": "f(x) = y",
+      "formula_latex": "",
       "exam_trap": "❌ False: ... | ✅ Truth: ... | ⚠️ Examiner Twist: ...",
       "viva_insight": "🎯 Viva: ... | 💡 Answer: ...",
-      "cross_subject": "Physics ↔ Chemistry",
+      "cross_subject": "",
       "importance": 4,
       "badge": "Sub-Branch",
       "metrics": {"Key": "Value"}
@@ -391,13 +391,15 @@ Output JSON strictly matching:
     }
   ]
 }`
+	aiLanguage := middleware.GetAILanguage(ctx)
+	systemPrompt += ai.BuildLanguageInstruction(aiLanguage)
 
 	userPrompt := fmt.Sprintf(`Topic: %s
 Parent Node: "%s"
 Parent Details: %s
 Force Expansion: %v
 Depth Level: %d
-Task: Evaluate cognitive saturation or generate 3 to 4 microscopic deep-dive sub-branches uncovering internal mechanics, formulas, exam traps, and viva drills for "%s".`, req.Concept, req.NodeLabel, req.NodeDetails, req.Force, req.NodeDepth, req.NodeLabel)
+Task: Evaluate cognitive saturation or generate 3 to 4 microscopic deep-dive sub-branches for "%s" in crisp point-by-point bullet format (zero long paragraphs, simple words).`, req.Concept, req.NodeLabel, req.NodeDetails, req.Force, req.NodeDepth, req.NodeLabel)
 
 	var resp dto.ExpandNodeResponse
 	resp.NodeID = req.NodeID
@@ -411,8 +413,23 @@ Task: Evaluate cognitive saturation or generate 3 to 4 microscopic deep-dive sub
 		return &resp, nil
 	}
 
+	if err != nil {
+		if !req.Force {
+			if saturated, reason := isFallbackTerminalConcept(req.NodeLabel, req.NodeDetails); saturated {
+				return &dto.ExpandNodeResponse{
+					NodeID:           req.NodeID,
+					CanExpand:        false,
+					IsSaturated:      true,
+					SaturationReason: reason,
+					NewNodes:         []dto.GraphNode{},
+					NewEdges:         []dto.GraphEdge{},
+				}, nil
+			}
+		}
+	}
+
 	if err != nil || len(resp.NewNodes) < 3 {
-		// If force was true or node is valid to expand, provide intelligent fallback
+		// If force was true or node is valid to expand, provide intelligent point-by-point fallback
 		resp.CanExpand = true
 		resp.IsSaturated = false
 		color := req.BranchColor
@@ -424,24 +441,23 @@ Task: Evaluate cognitive saturation or generate 3 to 4 microscopic deep-dive sub
 			{
 				ID:           req.NodeID + "_sub_1",
 				Label:        req.NodeLabel + " Mechanism",
-				Subtitle:     "Analytical Mechanics & Derivation",
-				Description:  "Detailed operational principles, execution phases, and governing physics for " + req.NodeLabel,
+				Subtitle:     "Operational Dynamics",
+				Description:  fmt.Sprintf("• Step 1: Initiating dynamic for %s.\n• Step 2: Intermediate state change and transformation.\n• Step 3: Resulting invariant and final output.", req.NodeLabel),
 				NodeType:     "leaf",
-				Type:         "equation",
+				Type:         "process",
 				Shape:        "capsule",
 				BranchID:     req.NodeID,
 				ColorHex:     color,
-				FormulaLatex: `\mathcal{L} = T - V`,
 				Importance:   4,
 				Badge:        "Mechanism",
-				Metrics:      map[string]string{"Execution Phase": "Active State", "Invariants": "Conserved"},
-				VivaInsight:  "Explain the primary state transformation step and governing boundary invariants.",
+				Metrics:      map[string]string{"State": "Active", "Invariant": "Preserved"},
+				VivaInsight:  fmt.Sprintf("Explain the primary transition mechanism in %s.", req.NodeLabel),
 			},
 			{
 				ID:           req.NodeID + "_sub_2",
 				Label:        req.NodeLabel + " Examiner Traps",
-				Subtitle:     "High-Yield Scoring Pitfalls",
-				Description:  "Common boundary misconceptions, sign blunders, and trick questions tested in competitive exams",
+				Subtitle:     "High-Yield Pitfalls",
+				Description:  fmt.Sprintf("• Misconception: Over-generalizing %s without checking edge conditions.\n• Reality: Boundary cases where standard rules fail.\n• Pro Tip: Fast test-taking check for exams.", req.NodeLabel),
 				NodeType:     "leaf",
 				Type:         "trap",
 				Shape:        "diamond",
@@ -454,32 +470,31 @@ Task: Evaluate cognitive saturation or generate 3 to 4 microscopic deep-dive sub
 			},
 			{
 				ID:           req.NodeID + "_sub_3",
-				Label:        req.NodeLabel + " Numerical Benchmarks",
-				Subtitle:     "Quantitative Metrics & Limits",
-				Description:  "Asymptotic performance boundaries, hardware/circuit benchmarks, and operational constants",
+				Label:        req.NodeLabel + " Applications",
+				Subtitle:     "Real-World Context",
+				Description:  fmt.Sprintf("• Practical Context: Where %s is utilized in real scenarios.\n• Trade-off: Efficiency versus implementation complexity.\n• Benchmark: Performance target achieved.", req.NodeLabel),
 				NodeType:     "leaf",
-				Type:         "process",
+				Type:         "concept",
 				Shape:        "box",
 				BranchID:     req.NodeID,
 				ColorHex:     color,
 				Importance:   4,
-				Badge:        "Quantitative",
-				Metrics:      map[string]string{"Worst Bound": "Bounded", "Efficiency": "Optimal"},
-				CrossSubject: "Computer Science ↔ Applied Mathematics",
+				Badge:        "Application",
+				Metrics:      map[string]string{"Yield": "High", "Feasibility": "Optimal"},
 			},
 			{
 				ID:           req.NodeID + "_sub_4",
-				Label:        req.NodeLabel + " Viva & Industry Nuance",
-				Subtitle:     "Oral Examination & Modern Tech",
-				Description:  "Practical industry engineering trade-offs, standard interview questions, and real-world system applications",
+				Label:        req.NodeLabel + " Viva Drill",
+				Subtitle:     "Oral Examination Insight",
+				Description:  fmt.Sprintf("• Oral Question: Why does %s behave differently under extreme limits?\n• 2-Line Answer: Primary cause and underlying governing principle.\n• Follow-up: Cross-topic connection to related systems.", req.NodeLabel),
 				NodeType:     "leaf",
 				Type:         "concept",
 				Shape:        "capsule",
 				BranchID:     req.NodeID,
 				ColorHex:     "#10B981",
 				Importance:   3,
-				Badge:        "Viva Insight",
-				VivaInsight:  "How does this concept scale when inputs increase by 1000x in production systems?",
+				Badge:        "Viva Drill",
+				VivaInsight:  fmt.Sprintf("How does %s adapt when scaled to 1000x inputs?", req.NodeLabel),
 			},
 		}
 
@@ -1206,64 +1221,121 @@ func buildDomainSmartMindMap(concept, diagramType string) dto.DiagramResponse {
 				},
 			},
 		}
-	} else {
-		// 6. TREE ARCHETYPE: Operating System Schedulers / Sorting Taxonomy / General
+	} else if strings.Contains(lower, "os ") || strings.Contains(lower, "schedul") || strings.Contains(lower, "operating system") {
+		// 6A. OS Schedulers / Systems Taxonomy
 		archetype = "tree"
 		resp.DomainType = "algorithm"
 		resp.Title = fmt.Sprintf("%s Master Classification Tree", concept)
-		summary = fmt.Sprintf("Taxonomy, complexity invariants, and edge-case classification for %s.", concept)
+		summary = fmt.Sprintf("Taxonomy, scheduling policies, and edge-case classification for %s.", concept)
 		branches = []fallbackBranch{
 			{
-				id: "b1", label: "Foundations & Axioms", subtitle: "Core Definition",
-				details: fmt.Sprintf("Fundamental mathematical and logical invariants governing %s", concept),
-				shape: "box", nodeType: "concept", color: "#6366F1",
-				formulaLatex: `T(n) = 2T(n/2) + \Theta(n)`,
-				metrics: map[string]string{"Best Case": "O(N log N)", "Worst Case": "O(N^2)"},
-				trap: "❌ False: Assumed universal efficiency under all inputs. ✅ Truth: Edge-case inputs (sorted, reverse-sorted, duplicates) trigger asymptotic degradation!",
-				viva: fmt.Sprintf("What are the strict boundary conditions where %s fails in production?", concept),
+				id: "b1", label: "Preemptive Schedulers", subtitle: "Time-Slice & Priority",
+				details: "• Core Rule: OS can interrupt and suspend running processes.\n• Mechanism: Timer interrupts trigger context switch to ready queue.\n• Primary Trade-off: High responsiveness vs context-switch overhead.",
+				shape: "box", nodeType: "process", color: "#6366F1",
+				metrics: map[string]string{"Throughput": "High", "Overhead": "Context Switch Cost"},
+				trap: "❌ False: Preemption guarantees starvation freedom. ✅ Truth: Priority inversion can indefinitely block high-priority tasks!",
+				viva: "How does Priority Inheritance Protocol solve the priority inversion problem?",
 				leaves: []fallbackLeaf{
 					{
-						id: "l1_1", label: "Governing Law / Recurrence", subtitle: "Mathematical Relation",
-						details: "Rigorous recurrence relation and asymptotic bound derivation",
-						shape: "capsule", nodeType: "equation", color: "#818CF8",
-						formulaLatex: `T(n) = aT(n/b) + f(n)`,
-						trap: "Master Theorem fails when f(n) is not polynomially larger/smaller than n^(log_b a).",
-						viva: "Use Akra-Bazzi method when subproblems have non-uniform partition sizes.",
+						id: "l1_1", label: "Round Robin (RR)", subtitle: "Equal Quantum Allocation",
+						details: "• Intuition: Fair rotating queue where each process gets fixed quantum Q.\n• Boundary case: If Q is huge, degrades to FCFS; if Q is tiny, context switch dominates.\n• Rule of Thumb: Choose Q such that 80% CPU bursts complete within 1 quantum.",
+						shape: "capsule", nodeType: "process", color: "#818CF8",
+						trap: "Ignoring context switch time (typically 1-10 microseconds) in quantum sizing.",
+						viva: "Why does Round Robin achieve good response time for interactive processes?",
 					},
 				},
 			},
 			{
-				id: "b2", label: "Mechanics & Invariants", subtitle: "Step-by-Step Dynamics",
-				details: "Operational flow, state transitions, and two-pointer or loop invariant preservation",
+				id: "b2", label: "Non-Preemptive Schedulers", subtitle: "Run-to-Completion",
+				details: "• Core Rule: Once allocated, CPU cannot be revoked until process yields.\n• Mechanism: Simple FIFO or shortest job selection without preemption.\n• Gotcha: Vulnerable to Convoy Effect where short jobs starve behind long jobs.",
 				shape: "box", nodeType: "process", color: "#0EA5E9",
-				metrics: map[string]string{"Space Overhead": "O(1) Auxiliary", "Stability": "Unstable"},
-				trap: "❌ False: In-place implies stable order. ✅ Truth: Swapping non-adjacent elements fundamentally destroys relative order of equal keys!",
-				viva: "How to make an unstable algorithm stable? Augment keys with their original indices.",
+				metrics: map[string]string{"Scheduling Overhead": "Zero / Minimal", "Convoy Effect": "High Risk"},
+				trap: "❌ False: SJF is practical for general OS. ✅ Truth: Future CPU burst lengths cannot be known in advance!",
+				viva: "How does Exponential Smoothing approximate next CPU burst length?",
 				leaves: []fallbackLeaf{
 					{
-						id: "l2_1", label: "Partition / Pivot Invariant", subtitle: "Core Execution Loop",
-						details: "Maintains invariant that all elements left of boundary satisfy the predicate",
+						id: "l2_1", label: "Shortest Job First (SJF)", subtitle: "Optimal Average Waiting Time",
+						details: "• Provable Optima: Guarantees minimum average waiting time for given processes.\n• Practical Implementation: Exponential averaging: tau_(n+1) = alpha*t_n + (1-alpha)*tau_n.\n• Fatal Flaw: Long jobs face complete starvation under continuous short arrivals.",
 						shape: "capsule", nodeType: "process", color: "#38BDF8",
-						snippet: "while i < j:\n  while arr[i] < pivot: i++\n  while arr[j] > pivot: j--\n  swap(arr[i], arr[j])",
-						trap: "Off-by-one errors in while conditions cause infinite loops on duplicate keys.",
-						viva: "3-way Dutch National Flag partition completely eliminates degradation from duplicate elements.",
+						formulaLatex: `\tau_{n+1} = \alpha t_n + (1 - \alpha)\tau_n`,
+						trap: "Assuming SJF is fair; it prioritizes average metrics over individual fairness.",
+						viva: "Prove why SJF achieves minimal average waiting time compared to FIFO.",
 					},
 				},
 			},
 			{
-				id: "b3", label: "Competitive Exam Traps", subtitle: "High-Yield Scoring Pitfalls",
-				details: "Edge cases, corner constraints, and common numerical gotchas tested in competitive exams",
+				id: "b3", label: "Real-Time & Hybrid", subtitle: "Deadline Guarantees",
+				details: "• Core Rule: Correctness depends on both logical output and arrival deadline.\n• Priority Model: Static priority (Rate Monotonic) or dynamic priority (EDF).\n• Benchmark: Utilization bounds govern feasibility.",
 				shape: "box", nodeType: "trap", color: "#F59E0B",
-				trap: "❌ False: Recursion depth is always bounded by log(N). ✅ Truth: Unbalanced recursion degrades to O(N) stack frames, causing StackOverflow!",
-				viva: "Tail-call recursion optimization (TCO) eliminates auxiliary stack frame accumulation on the larger subproblem.",
+				trap: "❌ False: 100% CPU utilization is always achievable. ✅ Truth: Rate Monotonic bound is n(2^(1/n) - 1) ~ 69.3%!",
+				viva: "Explain the difference between Hard Real-Time and Soft Real-Time systems.",
 				leaves: []fallbackLeaf{
 					{
-						id: "l3_1", label: "Worst-Case Immune Hybrids", subtitle: "IntroSort / Dual-Pivot",
-						details: "Monitors recursion depth; switches to HeapSort if depth exceeds 2*log(N) to guarantee O(N log N) worst-case",
+						id: "l3_1", label: "Earliest Deadline First (EDF)", subtitle: "Dynamic Priority Scheduling",
+						details: "• Optimal Dynamic Rule: Process with closest deadline gets highest priority.\n• Schedulability Bound: Can achieve 100% theoretical CPU utilization.\n• Hazard: Under overload conditions, Domino Effect causes cascade deadline failures.",
 						shape: "diamond", nodeType: "trap", color: "#FBBF24",
-						metrics: map[string]string{"Worst Bound": "O(N log N) Guaranteed", "Used In": "C++ std::sort, Rust"},
-						trap: "Standard QuickSort without depth check is vulnerable to algorithmic complexity denial-of-service (DoS) attacks.",
-						viva: "Why not use HeapSort directly? HeapSort suffers from poor spatial cache locality compared to QuickSort.",
+						metrics: map[string]string{"Utilization": "Up to 100%", "Priority": "Dynamic"},
+						trap: "EDF degrades unpredictably during transient overloads.",
+						viva: "Compare Rate Monotonic vs Earliest Deadline First schedulability limits.",
+					},
+				},
+			},
+		}
+	} else {
+		// 6B. UNIVERSAL TOPIC-ADAPTIVE MIND MAP (100% Flexible, Point-by-Point, Zero Canned CS Text)
+		archetype = "tree"
+		resp.DomainType = "general"
+		resp.Title = fmt.Sprintf("%s Concept Map", concept)
+		summary = fmt.Sprintf("Clean, point-by-point visual mind map breaking down the core principles, mechanisms, and exam traps of %s.", concept)
+		branches = []fallbackBranch{
+			{
+				id: "b1", label: "Core Principles", subtitle: "Fundamental Axioms",
+				details: fmt.Sprintf("• Core Idea: Central foundation and defining purpose of %s.\n• Why It Matters: Solves fundamental challenges and sets governing rules.\n• Memory Hook: Visual anchor connecting all sub-branches.", concept),
+				shape: "box", nodeType: "concept", color: "#6366F1",
+				metrics: map[string]string{"Scope": "Core Foundation", "Relevance": "High-Yield"},
+				trap: fmt.Sprintf("❌ False: Assuming %s applies universally without checking boundary conditions. ✅ Truth: Always check underlying assumptions!", concept),
+				viva: fmt.Sprintf("Explain the single most important intuition behind %s in 2 lines.", concept),
+				leaves: []fallbackLeaf{
+					{
+						id: "l1_1", label: "Governing Laws", subtitle: "Rules & Axioms",
+						details: fmt.Sprintf("• Primary Rule: The fundamental rule that governs %s.\n• Underlying Logic: Causal relationship between components.\n• Practical Invariant: What remains true across all scenarios.", concept),
+						shape: "capsule", nodeType: "concept", color: "#818CF8",
+						trap: "Overlooking initial assumptions leads to calculation or conceptual errors.",
+						viva: "What is the primary boundary condition where this concept fails in practice?",
+					},
+				},
+			},
+			{
+				id: "b2", label: "Working Mechanism", subtitle: "Step-by-Step Flow",
+				details: fmt.Sprintf("• Execution Phase: Step-by-step dynamic transitions in %s.\n• State Change: How inputs transform into outputs.\n• Critical Invariant: What remains conserved throughout.", concept),
+				shape: "box", nodeType: "process", color: "#0EA5E9",
+				metrics: map[string]string{"State": "Active Phase", "Dynamics": "Dynamic"},
+				trap: "❌ False: Confusing intermediate states with the final output. ✅ Truth: Track step-by-step transitions!",
+				viva: fmt.Sprintf("Walk through the primary phases of %s step by step.", concept),
+				leaves: []fallbackLeaf{
+					{
+						id: "l2_1", label: "Key Transformations", subtitle: "Internal Dynamics",
+						details: fmt.Sprintf("• Trigger: Initial event initiating the process.\n• Core Action: The pivotal mechanism at work in %s.\n• Outcome: End condition and deliverables.", concept),
+						shape: "capsule", nodeType: "process", color: "#38BDF8",
+						trap: "Skipping intermediate transition conditions.",
+						viva: "How do you verify each step executed correctly?",
+					},
+				},
+			},
+			{
+				id: "b3", label: "High-Yield Traps", subtitle: "Scoring Gotchas",
+				details: fmt.Sprintf("• Classic Trap: The #1 misconception students make in %s.\n• True Reality: The correct analytical distinction.\n• Examiner Twist: How test questions are framed to mislead.", concept),
+				shape: "box", nodeType: "trap", color: "#F59E0B",
+				trap: fmt.Sprintf("❌ False: Confusing %s with similar-sounding concepts. ✅ Truth: Identify the differentiating boundary factor!", concept),
+				viva: fmt.Sprintf("What is the toughest viva question asked on %s?", concept),
+				leaves: []fallbackLeaf{
+					{
+						id: "l3_1", label: "Edge Case Invariants", subtitle: "Boundary Nuances",
+						details: fmt.Sprintf("• Corner Case: Unusual input or boundary in %s where standard intuition fails.\n• Safeguard: Invariant check used to prevent errors.\n• Pro Tip: Speed-solving shortcut for exams.", concept),
+						shape: "diamond", nodeType: "trap", color: "#FBBF24",
+						metrics: map[string]string{"Difficulty": "Exam Gotcha", "Risk": "Negative Marking"},
+						trap: "Ignoring boundary limits and edge conditions.",
+						viva: "How do you test boundary stability in this scenario?",
 					},
 				},
 			},
@@ -1510,6 +1582,8 @@ CRITICAL RULES:
     }
   ]
 }`, req.Concept, numQ, difficulty, req.Concept)
+	aiLanguage := middleware.GetAILanguage(ctx)
+	systemPrompt += ai.BuildLanguageInstruction(aiLanguage)
 
 	nodesSummary, _ := json.Marshal(req.Nodes)
 	userPrompt := fmt.Sprintf("Concept: %s\nArchetype: %s\nNodes:\n%s", req.Concept, req.Archetype, string(nodesSummary))
@@ -1714,6 +1788,8 @@ CRITICAL FORMATTING:
     }
   ]
 }`, req.Concept, cardCount, difficulty, req.Concept)
+	aiLanguage := middleware.GetAILanguage(ctx)
+	systemPrompt += ai.BuildLanguageInstruction(aiLanguage)
 
 	nodesSummary, _ := json.Marshal(req.Nodes)
 	userPrompt := fmt.Sprintf("Concept: %s\nArchetype: %s\nNodes:\n%s", req.Concept, req.Archetype, string(nodesSummary))

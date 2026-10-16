@@ -9,6 +9,7 @@ import (
 	"goProjectStructure/internal/handler/dto"
 	"goProjectStructure/internal/handler/model"
 	"goProjectStructure/internal/handler/repository"
+	"goProjectStructure/internal/middleware"
 	"goProjectStructure/internal/reuse/ai"
 
 	"go.uber.org/zap"
@@ -85,6 +86,8 @@ Rules:
     }
   ]
 }`
+	aiLanguage := middleware.GetAILanguage(ctx)
+	systemPrompt += ai.BuildLanguageInstruction(aiLanguage)
 
 	userPrompt := fmt.Sprintf(
 		"Generate %d high-yield active recall flashcards.\nTopic: %s\nRigor Level: %s",

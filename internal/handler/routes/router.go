@@ -37,6 +37,7 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 	r.Use(middleware.ZapLogger(logger))
 	r.Use(middleware.IdempotencyMiddleware(10 * time.Minute))
 	r.Use(middleware.CORS)
+	r.Use(middleware.AILanguage)
 	limiter := middleware.NewIPRateLimiter(100, time.Minute, cfg.TrustedProxies...)
 	r.Use(limiter.Middleware())
 

@@ -7,6 +7,7 @@ import (
 
 	"goProjectStructure/internal/handler/dto"
 	"goProjectStructure/internal/handler/repository"
+	"goProjectStructure/internal/middleware"
 	"goProjectStructure/internal/reuse/ai"
 )
 
@@ -66,6 +67,8 @@ Analyze the provided student study notes and output a single JSON object strictl
   ],
   "cheat_sheet": "string (compact formula & definitions cheat sheet in markdown)"
 }`
+	aiLanguage := middleware.GetAILanguage(ctx)
+	systemPrompt += ai.BuildLanguageInstruction(aiLanguage)
 
 	userPrompt := fmt.Sprintf("Notes Title: %s\n\nNotes Content:\n%s", title, content)
 

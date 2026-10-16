@@ -13,6 +13,7 @@ import (
 	"goProjectStructure/internal/handler/dto"
 	"goProjectStructure/internal/handler/model"
 	"goProjectStructure/internal/handler/repository"
+	"goProjectStructure/internal/middleware"
 	"goProjectStructure/internal/reuse/ai"
 
 	"github.com/google/uuid"
@@ -137,6 +138,8 @@ RULES:
 3. correct_option_index must be 0, 1, 2, or 3 corresponding to the correct option.
 4. Always provide a rich explanation with clean LaTeX formulas and a high-yield trap warning.
 5. Return ONLY valid JSON.`
+	aiLanguage := middleware.GetAILanguage(ctx)
+	systemPrompt += ai.BuildLanguageInstruction(aiLanguage)
 
 	userPrompt := fmt.Sprintf("Topic: %s\nTarget Difficulty: %s\nExact Question Count: %d%s\nTarget Exam: %s\nAcademic Level: %s",
 		req.Topic, difficulty, qCount, weakContext, profile.TargetExam, profile.AcademicLevel)

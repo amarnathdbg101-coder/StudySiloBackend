@@ -10,6 +10,7 @@ import (
 	"goProjectStructure/internal/handler/dto"
 	"goProjectStructure/internal/handler/model"
 	"goProjectStructure/internal/handler/repository"
+	"goProjectStructure/internal/middleware"
 	"goProjectStructure/internal/reuse/ai"
 
 	"go.uber.org/zap"
@@ -231,6 +232,8 @@ Respond strictly in valid JSON format matching this schema with NO markdown code
     "Topic 3": 88
   }
 }`
+	aiLanguage := middleware.GetAILanguage(ctx)
+	systemPrompt += ai.BuildLanguageInstruction(aiLanguage)
 
 	userPrompt := fmt.Sprintf(`Student Profile:
 Target Exam: %s

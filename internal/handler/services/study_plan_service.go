@@ -9,6 +9,7 @@ import (
 	"goProjectStructure/internal/handler/dto"
 	"goProjectStructure/internal/handler/model"
 	"goProjectStructure/internal/handler/repository"
+	"goProjectStructure/internal/middleware"
 	"goProjectStructure/internal/reuse/ai"
 )
 
@@ -126,6 +127,8 @@ Generate a structured study roadmap strictly in JSON format matching this schema
     }
   ]
 }`
+	aiLanguage := middleware.GetAILanguage(ctx)
+	systemPrompt += ai.BuildLanguageInstruction(aiLanguage)
 
 	userPrompt := fmt.Sprintf("Exam Name: %s\nTarget Study Days: %d\nSyllabus Topics:\n- %s",
 		req.ExamName, req.TargetDays, strings.Join(req.Syllabus, "\n- "))

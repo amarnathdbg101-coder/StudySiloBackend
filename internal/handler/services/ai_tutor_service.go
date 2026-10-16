@@ -10,6 +10,8 @@ import (
 	"goProjectStructure/internal/handler/dto"
 	"goProjectStructure/internal/handler/model"
 	"goProjectStructure/internal/handler/repository"
+	"goProjectStructure/internal/middleware"
+	"goProjectStructure/internal/reuse/ai"
 )
 
 type AITutorService interface {
@@ -89,6 +91,8 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 	}
 
 	systemPrompt := buildTutorPrompt(req.Mode, req.Question, req.ContextNotes, targetExam, academicLevel, weakTopics)
+	aiLanguage := middleware.GetAILanguage(ctx)
+	systemPrompt = systemPrompt + "\n\n" + ai.BuildLanguageInstruction(aiLanguage)
 
 	// Resolve the session before loading its prior turns for conversational context.
 	sessionID := req.SessionID
