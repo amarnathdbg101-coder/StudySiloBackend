@@ -152,8 +152,8 @@ Output a single valid JSON object strictly matching this schema:
             "id": "leaf_1_1",
             "label": "Specific Law / Topic",
             "subtitle": "Sub-mechanism & Phase",
-            "details": "• Intuition: Simple analogy or mental hook\n• Mechanism: Step-by-step working logic\n• Pro Tip: High-yield scoring fact",
-            "description": "• Intuition: Simple analogy or mental hook\n• Mechanism: Step-by-step working logic\n• Pro Tip: High-yield scoring fact",
+            "details": "• Crisp, intuitive explanation tailored to this concept\n• Operational logic or edge-case boundary condition (1, 2, 3, or 4+ points as naturally needed)",
+            "description": "• Crisp, intuitive explanation tailored to this concept\n• Operational logic or edge-case boundary condition (1, 2, 3, or 4+ points as naturally needed)",
             "shape": "capsule",
             "type": "concept",
             "color_hex": "#818CF8",
@@ -176,7 +176,7 @@ Output a single valid JSON object strictly matching this schema:
   },
   "nodes": [],
   "edges": []
-}`
+} `
 	aiLanguage := strings.TrimSpace(req.AILanguage)
 	if aiLanguage == "" {
 		aiLanguage = strings.TrimSpace(req.Language)
@@ -192,8 +192,8 @@ Output a single valid JSON object strictly matching this schema:
 Diagram Type: %s
 Architectural Directives:
 - Build a clean, enjoyable, point-by-point visual mind map for "%s".
-- Simple shabdon me bahut kuch keh dena (Feynman style: zero long boring paragraphs, every node has 3-4 clean bullet points).
-- 100%% flexible and tailored to this specific topic's domain (no canned exam templates).
+- Simple shabdon me point-by-point (Feynman style: zero boring paragraphs; 100%% flexible point count: 1-2 points for simple terms, 2-4 points for mechanisms, 4-6 points for complex derivations).
+- 100%% flexible and tailored to this specific topic's domain (no canned templates or fixed 3-point limits).
 - Select the best Archetype (tree, flow, cycle, comparison, hub, or stack) to represent this topic naturally.
 - Break down into 4 to 6 strong conceptual branches with 2 to 3 leaves each.`, req.Concept, diagramType, req.Concept)
 
@@ -850,7 +850,7 @@ func buildDomainSmartMindMap(concept, diagramType string) dto.DiagramResponse {
 			branches = []fallbackBranch{
 				{
 					id: "b1", label: "Phase 1: Midpoint Divide", subtitle: "Halving Subproblem • O(1)",
-					details: "💡 Intuition: Divide a thick telephone directory exactly in half until single name pages remain. ⚙️ Mechanism: Calculate mid = l + (r-l)/2 to guard against integer overflow. 📌 Takeaway: Recursion tree depth is strictly bounded by log2(N).",
+					details: "• Divide input array at midpoint mid = l + (r-l)/2 to guard against 32-bit integer overflow\n• Halving continues recursively until atomic 1-element subarrays remain\n• Recursion tree depth is strictly bounded by log2(N)",
 					shape: "box", nodeType: "process", color: "#6366F1",
 					formulaLatex: `m = l + \left\lfloor \frac{r - l}{2} \right\rfloor`,
 					metrics: map[string]string{"Step Work": "O(1)", "Recursion Depth": "log2(N) levels"},
@@ -859,7 +859,7 @@ func buildDomainSmartMindMap(concept, diagramType string) dto.DiagramResponse {
 					leaves: []fallbackLeaf{
 						{
 							id: "l1_1", label: "Base Case Guard", subtitle: "Size <= 1 Trivial Order",
-							details: "💡 Intuition: A list of 1 element is already sorted. ⚙️ Mechanism: If left >= right, return immediately without further stack frame allocation. 📌 Takeaway: Halts recursion.",
+							details: "• A single-element subarray is trivially sorted (left >= right)\n• Returns immediately without allocating any further stack frames",
 							shape: "capsule", nodeType: "concept", color: "#818CF8",
 							trap: "Missing base case guard triggers immediate StackOverflowException.",
 						},
@@ -867,7 +867,7 @@ func buildDomainSmartMindMap(concept, diagramType string) dto.DiagramResponse {
 				},
 				{
 					id: "b2", label: "Phase 2: Conquer (Recursion)", subtitle: "T(N) = 2T(N/2)",
-					details: "💡 Intuition: Delegate sorting of the left half and right half independently. ⚙️ Mechanism: Invoke sort(left, mid) followed by sort(mid+1, right). 📌 Takeaway: Balanced subproblems eliminate worst-case skew.",
+					details: "• Recursively sorts left subarray [l..mid] and right subarray [mid+1..r]\n• Master Theorem Case 2 guarantees balanced subproblems with no worst-case skew",
 					shape: "box", nodeType: "process", color: "#0EA5E9",
 					formulaLatex: `T(n) = 2T(n/2) + \Theta(n)`,
 					metrics: map[string]string{"Best Case": "O(N log N)", "Worst Case": "O(N log N)"},
@@ -876,7 +876,7 @@ func buildDomainSmartMindMap(concept, diagramType string) dto.DiagramResponse {
 					leaves: []fallbackLeaf{
 						{
 							id: "l2_1", label: "Recursion Stack Bounds", subtitle: "Stack Frame Overhead",
-							details: "💡 Intuition: Maximum height of active stack frames. ⚙️ Mechanism: Call stack depth is log2(N); memory is reused upon return. 📌 Takeaway: O(log N) stack frames.",
+							details: "• Maximum call stack depth is exactly ceil(log2 N) frames\n• Memory frames are reused upon backtracking",
 							shape: "capsule", nodeType: "equation", color: "#38BDF8",
 							metrics: map[string]string{"Call Stack": "O(log N)", "Work/Level": "O(N)"},
 						},
@@ -884,7 +884,7 @@ func buildDomainSmartMindMap(concept, diagramType string) dto.DiagramResponse {
 				},
 				{
 					id: "b3", label: "Phase 3: Two-Pointer Merge", subtitle: "Linear Auxiliary Assembly",
-					details: "💡 Intuition: Zip two sorted decks of cards together by repeatedly taking the smaller top card. ⚙️ Mechanism: Compare arr[i] <= arr[j] and copy smaller into auxiliary buffer B. 📌 Takeaway: Requires O(N) auxiliary space.",
+					details: "• Compares elements arr[i] and arr[j] from both sorted halves\n• Copies smaller element into auxiliary buffer B to maintain stability\n• Flushes remaining elements and copies buffer back in O(N) linear time",
 					shape: "box", nodeType: "process", color: "#10B981",
 					formulaLatex: `\text{MergeTime}(n_1, n_2) \le n_1 + n_2 - 1`,
 					metrics: map[string]string{"Merge Work": "O(N)", "Auxiliary Buffer": "O(N)", "Stability": "Stable (with <=)"},
@@ -893,7 +893,7 @@ func buildDomainSmartMindMap(concept, diagramType string) dto.DiagramResponse {
 					leaves: []fallbackLeaf{
 						{
 							id: "l3_1", label: "Linear Merge Invariant", subtitle: "Two-Pointer Logic",
-							details: "💡 Intuition: Maintain current minimum. ⚙️ Mechanism: Increment index pointer of whichever subarray contributed the element. 📌 Takeaway: Linear time merger.",
+							details: "• Tracks active minimum between both halves using index pointers i and j\n• Strictly O(N) work per recursion level",
 							shape: "capsule", nodeType: "process", color: "#34D399",
 							snippet: "while i <= mid && j <= r:\n  if arr[i] <= arr[j]: B[k++] = arr[i++]\n  else: B[k++] = arr[j++]\ncopy back B to arr",
 						},
@@ -901,7 +901,7 @@ func buildDomainSmartMindMap(concept, diagramType string) dto.DiagramResponse {
 				},
 				{
 					id: "b4", label: "Phase 4: Output Invariant", subtitle: "Monotonic Ascending Order",
-					details: "💡 Intuition: Merged buffer is copied back into the primary array slice. ⚙️ Mechanism: Transcribes auxiliary buffer B[0..k-1] to arr[l..r]. 📌 Takeaway: Section is now completely sorted in-place relative to parent.",
+					details: "• Merged segment is guaranteed monotonically sorted\n• Stable relative ordering is preserved for identical keys",
 					shape: "box", nodeType: "concept", color: "#F59E0B",
 					metrics: map[string]string{"Guaranteed Time": "Theta(N log N)", "Used in": "Java Object Sorting (Timsort), GNU sort"},
 					trap: "❌ False Belief: In-place MergeSort with O(1) space is practical. ✅ Truth: Block merge algorithms with O(1) space have massive constant factor overhead and are rarely used in practice.",
@@ -909,7 +909,7 @@ func buildDomainSmartMindMap(concept, diagramType string) dto.DiagramResponse {
 					leaves: []fallbackLeaf{
 						{
 							id: "l4_1", label: "External Sorting on Disk", subtitle: "Sequential Access Advantage",
-							details: "💡 Intuition: Sorting petabytes of data that cannot fit into RAM. ⚙️ Mechanism: Merges sorted chunks sequentially via streaming disk reads. 📌 Takeaway: Standard for big data.",
+							details: "• Standard for sorting big data exceeding RAM capacity\n• Streams sorted chunks sequentially from disk using a K-way min-heap",
 							shape: "capsule", nodeType: "concept", color: "#FBBF24",
 							metrics: map[string]string{"I/O Efficiency": "Optimal Sequential Streaming", "K-Way Merge": "Heap of size K"},
 						},
@@ -1310,7 +1310,7 @@ func buildDomainSmartMindMap(concept, diagramType string) dto.DiagramResponse {
 		branches = []fallbackBranch{
 			{
 				id: "b1", label: "Core Principles", subtitle: "Fundamental Axioms",
-				details: fmt.Sprintf("• Core Idea: Central foundation and defining purpose of %s.\n• Why It Matters: Solves fundamental challenges and sets governing rules.\n• Memory Hook: Visual anchor connecting all sub-branches.", concept),
+				details: fmt.Sprintf("• Central foundation and defining purpose of %s\n• Governing rules and high-impact theoretical foundations", concept),
 				shape: "box", nodeType: "concept", color: "#6366F1",
 				metrics: map[string]string{"Scope": "Core Foundation", "Relevance": "High-Yield"},
 				trap: fmt.Sprintf("❌ False: Assuming %s applies universally without checking boundary conditions. ✅ Truth: Always check underlying assumptions!", concept),
@@ -1318,7 +1318,7 @@ func buildDomainSmartMindMap(concept, diagramType string) dto.DiagramResponse {
 				leaves: []fallbackLeaf{
 					{
 						id: "l1_1", label: "Governing Laws", subtitle: "Rules & Axioms",
-						details: fmt.Sprintf("• Primary Rule: The fundamental rule that governs %s.\n• Underlying Logic: Causal relationship between components.\n• Practical Invariant: What remains true across all scenarios.", concept),
+						details: fmt.Sprintf("• The primary causal relationship that governs %s\n• Fundamental invariant that remains true across standard test cases", concept),
 						shape: "capsule", nodeType: "concept", color: "#818CF8",
 						trap: "Overlooking initial assumptions leads to calculation or conceptual errors.",
 						viva: "What is the primary boundary condition where this concept fails in practice?",
@@ -1327,7 +1327,7 @@ func buildDomainSmartMindMap(concept, diagramType string) dto.DiagramResponse {
 			},
 			{
 				id: "b2", label: "Working Mechanism", subtitle: "Step-by-Step Flow",
-				details: fmt.Sprintf("• Execution Phase: Step-by-step dynamic transitions in %s.\n• State Change: How inputs transform into outputs.\n• Critical Invariant: What remains conserved throughout.", concept),
+				details: fmt.Sprintf("• Step-by-step operational transitions in %s\n• How primary inputs and initial conditions transform into outputs\n• Key conservation or balance maintained throughout the process", concept),
 				shape: "box", nodeType: "process", color: "#0EA5E9",
 				metrics: map[string]string{"State": "Active Phase", "Dynamics": "Dynamic"},
 				trap: "❌ False: Confusing intermediate states with the final output. ✅ Truth: Track step-by-step transitions!",
@@ -1335,7 +1335,7 @@ func buildDomainSmartMindMap(concept, diagramType string) dto.DiagramResponse {
 				leaves: []fallbackLeaf{
 					{
 						id: "l2_1", label: "Key Transformations", subtitle: "Internal Dynamics",
-						details: fmt.Sprintf("• Trigger: Initial event initiating the process.\n• Core Action: The pivotal mechanism at work in %s.\n• Outcome: End condition and deliverables.", concept),
+						details: fmt.Sprintf("• Initial trigger event initiating the mechanism in %s\n• Core internal transition and resulting deliverables", concept),
 						shape: "capsule", nodeType: "process", color: "#38BDF8",
 						trap: "Skipping intermediate transition conditions.",
 						viva: "How do you verify each step executed correctly?",
@@ -1344,14 +1344,14 @@ func buildDomainSmartMindMap(concept, diagramType string) dto.DiagramResponse {
 			},
 			{
 				id: "b3", label: "High-Yield Traps", subtitle: "Scoring Gotchas",
-				details: fmt.Sprintf("• Classic Trap: The #1 misconception students make in %s.\n• True Reality: The correct analytical distinction.\n• Examiner Twist: How test questions are framed to mislead.", concept),
+				details: fmt.Sprintf("• Common misconception students encounter when analyzing %s\n• Critical boundary criteria differentiating it from related concepts", concept),
 				shape: "box", nodeType: "trap", color: "#F59E0B",
 				trap: fmt.Sprintf("❌ False: Confusing %s with similar-sounding concepts. ✅ Truth: Identify the differentiating boundary factor!", concept),
 				viva: fmt.Sprintf("What is the toughest viva question asked on %s?", concept),
 				leaves: []fallbackLeaf{
 					{
 						id: "l3_1", label: "Edge Case Invariants", subtitle: "Boundary Nuances",
-						details: fmt.Sprintf("• Corner Case: Unusual input or boundary in %s where standard intuition fails.\n• Safeguard: Invariant check used to prevent errors.\n• Pro Tip: Speed-solving shortcut for exams.", concept),
+						details: fmt.Sprintf("• Unusual boundary condition in %s where standard intuition fails\n• Safeguard check used to prevent calculation or reasoning errors", concept),
 						shape: "diamond", nodeType: "trap", color: "#FBBF24",
 						metrics: map[string]string{"Difficulty": "Exam Gotcha", "Risk": "Negative Marking"},
 						trap: "Ignoring boundary limits and edge conditions.",
