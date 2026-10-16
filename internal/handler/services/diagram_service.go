@@ -63,11 +63,17 @@ func (s *diagramService) GenerateDiagram(ctx context.Context, userID string, req
 Your mission is to generate a clean, point-by-point, highly engaging, and memorable visual mind map for the requested student concept.
 
 CRITICAL MIND MAP PEDAGOGY (SIMPLE, POINT-BY-POINT, 100% FLEXIBLE TO THE TOPIC, ZERO AWKWARD BOXES):
-1. PURE POINT-BY-POINT CONTENT (JUST LIKE AN AI ASSISTANT):
+1. PURE FLEXIBLE POINT-BY-POINT CONTENT (JUST LIKE AN AI ASSISTANT):
    - NEVER write long, dense textbook paragraphs!
-   - For every node, structure "details" and "description" as 3 to 4 crystal-clear, high-impact bullet points separated by newlines (• ...\n• ...).
-   - DO NOT use rigid canned prefixes like "Core Idea:", "How It Works:", "High-Yield Exam Takeaway:", "❌ False:", or "🎯 Viva:".
-   - Simply and directly explain that card's specific topic in friendly, simple words (Feynman style).
+   - 100% DYNAMIC & FLEXIBLE NUMBER OF POINTS (ZERO FIXED 3-POINT LIMIT):
+     The number and length of bullet points must match the real depth of the specific concept:
+     • Simple/Atomic terms: 1 to 2 crisp, high-impact bullet points.
+     • Core algorithms & mechanisms: 3 to 4 sequential, step-by-step points.
+     • Complex multi-part laws, derivations or comparisons: 4 to 6 comprehensive points.
+     NEVER force exactly 3 points on every node! Let the topic's true scope decide whether it needs short or long explanation.
+   - ZERO CANNED PREFIXES:
+     DO NOT write "Core Idea:", "Key Rule:", "How It Works:", "Mechanism:", or "Exam Takeaway:".
+     Write natural, human-friendly bullet points (• ...\n• ...) in simple, conversational language (Feynman style).
 2. 100% DYNAMIC & TOPIC-TAILORED (0% RIGID CANNED TEMPLATES):
    - Adapt 100% flexibly to the given topic's domain!
    - Computer Science / Algorithms: Focus on state transitions, pointer logic, and time/space intuition.
@@ -108,8 +114,8 @@ Output a single valid JSON object strictly matching this schema:
     "id": "root_1",
     "label": "Core Concept Name",
     "subtitle": "Overview & Governing Scope",
-    "details": "• Core Idea: Simple crystal-clear intuition\n• Core Mechanism: Governing law or thesis\n• High-Yield Takeaway: Central foundation",
-    "description": "• Core Idea: Simple crystal-clear intuition\n• Core Mechanism: Governing law or thesis\n• High-Yield Takeaway: Central foundation",
+    "details": "• Clean, first-principles intuition explaining the core topic naturally\n• Key mechanism or governing relationship broken down step-by-step\n• Important nuance, boundary condition, or real-world application",
+    "description": "• Clean, first-principles intuition explaining the core topic naturally\n• Key mechanism or governing relationship broken down step-by-step\n• Important nuance, boundary condition, or real-world application",
     "shape": "circle",
     "type": "concept",
     "color_hex": "#4F46E5",
@@ -127,8 +133,8 @@ Output a single valid JSON object strictly matching this schema:
         "id": "branch_1",
         "label": "Branch Name",
         "subtitle": "Pillar focus area",
-        "details": "• Key Rule: Core principle in simple words\n• How it operates: Step-by-step mechanism\n• Exam Takeaway: Crucial pillar insight",
-        "description": "• Key Rule: Core principle in simple words\n• How it operates: Step-by-step mechanism\n• Exam Takeaway: Crucial pillar insight",
+        "details": "• Natural explanation tailored directly to this branch\n• Operational details without any artificial prefix or boilerplate",
+        "description": "• Natural explanation tailored directly to this branch\n• Operational details without any artificial prefix or boilerplate",
         "shape": "box",
         "type": "process",
         "color_hex": "#6366F1",
@@ -335,11 +341,9 @@ You MUST dynamically and logically evaluate the academic question and concept:
 
 Pedagogical Content Rules:
 - ZERO LONG PARAGRAPHS: Students want point-by-point, bite-sized clarity.
-- For each sub-branch node's description and details:
-  Provide exactly 2 to 3 crisp bullet points separated by newlines:
-  • Core Idea: Punchy mental model in simple, everyday words.
-  • How it Operates: Micro-mechanism or step-by-step execution.
-  • Exam / Viva Tip: The single most important takeaway.
+- 100% FLEXIBLE POINT COUNT (NO ARTIFICIAL 3-POINT LIMIT):
+  The number of bullet points must fit the concept naturally (1 to 2 points for concise facts, 3 to 5 points for deeper multi-step mechanisms).
+- ZERO CANNED PREFIXES: Do NOT use "Core Idea:", "Key Rule:", "How It Works:", or "Mechanism:". Explain directly and conversationally.
 - 100% flexible to the topic domain. No rigid boilerplate or irrelevant formulas.
 - Crisp labels (2 to 4 words max).
 
@@ -347,7 +351,7 @@ For EVERY generated sub-branch node provide:
 1. "id": Unique string (e.g. "` + req.NodeID + `_sub_1").
 2. "label": Crisp title (2 to 4 words).
 3. "subtitle": Specific sub-context or focus area.
-4. "description": 2 to 3 bullet points separated by newlines (• ...\n• ...).
+4. "description": Bullet points separated by newlines (• ...\n• ...), flexible length according to topic.
 5. "details": Same content as description.
 6. "shape": "capsule" | "box" | "diamond".
 7. "type": "process" | "equation" | "concept" | "trap".
@@ -370,8 +374,8 @@ Output JSON strictly matching:
       "id": "` + req.NodeID + `_sub_1",
       "label": "Deep Sub-concept",
       "subtitle": "Internal Mechanism",
-      "description": "• Core Idea: Crisp intuition\n• Mechanism: Step-by-step logic\n• Key Takeaway: High-yield fact",
-      "details": "• Core Idea: Crisp intuition\n• Mechanism: Step-by-step logic\n• Key Takeaway: High-yield fact",
+      "description": "• Crisp mental model in simple conversational words\n• Internal step-by-step logic and operational details",
+      "details": "• Crisp mental model in simple conversational words\n• Internal step-by-step logic and operational details",
       "shape": "capsule",
       "type": "process",
       "formula_latex": "",

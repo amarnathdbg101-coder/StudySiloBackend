@@ -186,11 +186,8 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 		commonPitfalls = extractSection(answerText, "Common Pitfalls")
 	}
 
-	// Generate smart follow-up chips
+	// Follow-up chips removed permanently as requested for clean, point-by-point AI response
 	followUpChips := []string{}
-	if !strings.Contains(analyzeQuerySituation(req.Question, req.ContextNotes), "SITUATION: CONVERSATIONAL") {
-		followUpChips = generateFollowUpChips(req.Question, answerText)
-	}
 
 	resp := &dto.DoubtResponse{
 		Question:         req.Question,

@@ -145,9 +145,7 @@ func TestAITutorService_SolveDoubt(t *testing.T) {
 	if resp.SolutionMarkdown != generator.response {
 		t.Errorf("expected fresh provider response %q, got %q", generator.response, resp.SolutionMarkdown)
 	}
-	if len(resp.FollowUpChips) == 0 {
-		t.Error("expected follow-up chips")
-	}
+	// FollowUpChips permanently removed as per user UX requirement
 
 	// Verify chat message persisted
 	if len(chatRepo.messages) != 2 {
