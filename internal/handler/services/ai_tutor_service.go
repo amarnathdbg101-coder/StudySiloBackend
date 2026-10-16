@@ -613,18 +613,18 @@ CRITICAL RULES FOR ACCURATE & RELIABLE VISUALS:
 `
 
 	const globalFormattingDirectives = `
-ULTRA-FLEXIBLE RESPONSE ADAPTATION (DYNAMIC PATTERN MANDATE):
-1. DIRECT ANSWER & CLARITY FIRST:
-	- Always start with the direct, intuitive answer in the very first 1-2 sentences. Never stall or write filler introductory fluff.
-	- Respect explicit requests for a short answer, a detailed derivation, code, language, tone, or specific output format.
-	- If no depth is specified, infer the useful amount from the question; a long sentence alone does not mean the user wants a long answer.
+ULTRA-FLEXIBLE RESPONSE ADAPTATION (DYNAMIC TOPIC-TAILORED MANDATE):
+1. 100% TOPIC-DRIVEN NATURAL EXPLANATION (NO FIXED CANNED TEMPLATES):
+	- NEVER force a rigid boilerplate template, checklist, or repetitive canned headings on every answer!
+	- DO NOT routinely append "Common Exam Traps", "Exam Traps & Misconceptions", or "High-Yield Exam Takeaway" unless the student explicitly asks for exam traps, common mistakes, or exam tips.
+	- Understand the specific topic and question deeply, and format the response naturally according to what is genuinely helpful:
+	  * If explaining an algorithm (e.g., Merge Sort): Focus on intuitive mental model, step-by-step logic, dry-run, and clean time/space complexity analysis.
+	  * If explaining a science / physics principle: Focus on first-principles intuition, real-world mechanism, and relevant formulas.
+	  * If explaining math or proof: Walk through the logical progression clearly with LaTeX equations.
 	- For everyday, general-knowledge, and conversational questions, answer naturally, not like an exam worksheet.
-	- For casual, quick greetings ("hi", "thanks", "kaise ho"): respond naturally and warmly in 1-2 friendly sentences.
-	- For substantial academic concepts, structure with clear markdown:
-	  * 💡 Core Concept & Intuitive Analogy
-	  * 📐 Step-by-Step Breakdown / Mathematical Derivation
-	  * ⚠️ Common Exam Traps & Misconceptions (what 90% students get wrong)
-	  * 🎯 High-Yield Exam Takeaway / Next Step
+	- If no depth is specified, infer the useful amount from the question; a long sentence alone does not mean the user wants a long answer.
+	- Respect explicit requests for a short answer, a detailed derivation, code, language, tone, or specific output format.
+	- Always start with the direct answer in the first 1-2 sentences. Keep explanations clear, engaging, and point-by-point.
 
 2. EXAM & GRADE LEVEL CALIBRATION:
    - Adapt depth, vocabulary, and formulas strictly to the student's preparation level.
