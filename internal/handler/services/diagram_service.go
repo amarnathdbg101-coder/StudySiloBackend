@@ -255,14 +255,80 @@ Architectural Directives:
 	return &diagram, err
 }
 
+// isNodeCognitivelySaturated evaluates if expanding a node will create cognitive overload,
+// redundancy, or trivial noise (e.g. leaf complexity values like O(N log N), atomic constants, depth limit).
+func isNodeCognitivelySaturated(nodeLabel, nodeDetails string, depth int) (bool, string) {
+	labelLower := strings.ToLower(nodeLabel)
+	detailsLower := strings.ToLower(nodeDetails)
+
+	// 1. Asymptotic complexity leaves (like Time & Space Complexity, O(N log N), O(1))
+	complexityKeywords := []string{
+		"time complexity", "space complexity", "o(1)", "o(n)", "o(log n)", "o(n log n)",
+		"o(n^2)", "big-o", "auxiliary space", "worst-case bound", "best-case bound",
+		"asymptotic runtime", "space invariant", "time invariant", "time and space complexity",
+		"time & space complexity", "worst bound", "best bound",
+	}
+	for _, kw := range complexityKeywords {
+		if strings.Contains(labelLower, kw) || (strings.Contains(labelLower, "complexity") && strings.Contains(detailsLower, kw)) {
+			return true, fmt.Sprintf("'%s' ek fundamental performance metric hai. Iske aage aur split karne se conceptual confusion badhega aur exam me isse aage breakdown nahi pucha jaata.", nodeLabel)
+		}
+	}
+
+	// 2. Fundamental physical / mathematical constants or units
+	constantKeywords := []string{
+		"planck constant", "speed of light", "gravitational constant", "avogadro constant",
+		"boltzmann constant", "faraday constant", "gas constant", "universal constant",
+	}
+	for _, kw := range constantKeywords {
+		if strings.Contains(labelLower, kw) {
+			return true, fmt.Sprintf("'%s' ek fundamental constant hai. Isse aage aur expand karne se cognitive overload hoga.", nodeLabel)
+		}
+	}
+
+	// 3. Exam trap / Gotchas leaf nodes (already focused takeaway)
+	if strings.Contains(labelLower, "gotchas") || strings.Contains(labelLower, "examiner trap") || strings.Contains(labelLower, "pitfall") {
+		return true, fmt.Sprintf("'%s' already ek high-yield exam warning takeaway hai. Isse aur break down karne ki zaroorat nahi hai.", nodeLabel)
+	}
+
+	// 4. Depth threshold (depth >= 3 is already a 4th-level micro leaf)
+	if depth >= 3 {
+		return true, fmt.Sprintf("Yeh node depth level %d (atomic micro-branch) par hai. Isse zyada expand karne par mind map clutter aur confusing ho jayega.", depth)
+	}
+
+	return false, ""
+}
+
 func (s *diagramService) ExpandNode(ctx context.Context, userID string, req dto.ExpandNodeRequest) (*dto.ExpandNodeResponse, error) {
+	// Cognitive Saturation Guard:
+	// If force is false, check if the node has reached an atomic leaf state (e.g. O(N log N) complexity, constant, depth >= 3)
+	if !req.Force {
+		if saturated, reason := isNodeCognitivelySaturated(req.NodeLabel, req.NodeDetails, req.NodeDepth); saturated {
+			return &dto.ExpandNodeResponse{
+				NodeID:           req.NodeID,
+				CanExpand:        false,
+				IsSaturated:      true,
+				SaturationReason: reason,
+				NewNodes:         []dto.GraphNode{},
+				NewEdges:         []dto.GraphEdge{},
+			}, nil
+		}
+	}
+
 	systemPrompt := `You are an elite academic Master Professor and Visual Concept Architect.
 The student is exploring an interactive 4D Mind Map for: "` + req.Concept + `".
-They tapped on node: "` + req.NodeLabel + `" (Details: ` + req.NodeDetails + `) and requested a deep-dive expansion.
+They tapped on node: "` + req.NodeLabel + `" (Details: ` + req.NodeDetails + `) and requested an expansion.
+Force expansion flag: ` + fmt.Sprintf("%v", req.Force) + `.
 
-Generate exactly 3 to 4 deep-dive child sub-branches that explore the internal sub-mechanisms, mathematical derivations, edge cases, failure modes, or advanced applications of this specific node.
+Pedagogical Depth & Cognitive Saturation Rules:
+- Evaluate whether expanding this node further has high educational yield OR if it has reached atomic/fundamental depth where further splitting creates unnecessary noise, trivial facts, or cognitive confusion (e.g., trying to split an asymptotic complexity value like 'O(N log N)', an atomic constant, or a leaf takeaway).
+- If force is FALSE and the node has reached atomic saturation:
+  Set "can_expand": false, "is_saturated": true, "saturation_reason": "Crisp 1-2 line explanation in Hinglish/English explaining why further splitting creates cognitive clutter or is academically unnecessary.", "new_nodes": [], "new_edges": [].
+- If force is TRUE:
+  ALWAYS expand into microscopic mechanics, micro-architecture cache lines, CPU branch prediction, low-level pointers, or niche boundary derivations regardless of saturation.
+- If force is FALSE and the node genuinely has rich hierarchical sub-mechanisms:
+  Set "can_expand": true, "is_saturated": false, and generate exactly 3 to 4 sub-branches.
 
-Pedagogical Rules:
+Pedagogical Content Rules:
 - NEVER REPEAT parent info. Provide fresh, microscopic-level deep dives.
 - For each sub-branch node's description:
   1. 💡 Intuition: A crisp, 1-line mental model or analogy.
@@ -292,6 +358,9 @@ For EVERY generated sub-branch node provide:
 Output JSON strictly matching:
 {
   "node_id": "` + req.NodeID + `",
+  "can_expand": true,
+  "is_saturated": false,
+  "saturation_reason": "",
   "new_nodes": [
     {
       "id": "` + req.NodeID + `_sub_1",
@@ -326,13 +395,26 @@ Output JSON strictly matching:
 	userPrompt := fmt.Sprintf(`Topic: %s
 Parent Node: "%s"
 Parent Details: %s
-Task: Generate 3 to 4 microscopic deep-dive sub-branches uncovering internal mechanics, formulas, exam traps, and viva drills for "%s".`, req.Concept, req.NodeLabel, req.NodeDetails, req.NodeLabel)
+Force Expansion: %v
+Depth Level: %d
+Task: Evaluate cognitive saturation or generate 3 to 4 microscopic deep-dive sub-branches uncovering internal mechanics, formulas, exam traps, and viva drills for "%s".`, req.Concept, req.NodeLabel, req.NodeDetails, req.Force, req.NodeDepth, req.NodeLabel)
 
 	var resp dto.ExpandNodeResponse
 	resp.NodeID = req.NodeID
 	err := s.orchestrator.GenerateStructured(ctx, systemPrompt, userPrompt, &resp)
+	if err == nil && !req.Force && (resp.IsSaturated || !resp.CanExpand) && len(resp.NewNodes) == 0 {
+		if resp.SaturationReason == "" {
+			resp.SaturationReason = fmt.Sprintf("AI Advisory: '%s' already atomic depth par hai. Aage expand karne se conceptual confusion badh sakta hai.", req.NodeLabel)
+		}
+		resp.CanExpand = false
+		resp.IsSaturated = true
+		return &resp, nil
+	}
+
 	if err != nil || len(resp.NewNodes) < 3 {
-		// Provide intelligent fallback with 3-4 rich domain-aware sub-branches if AI fails or returns too few
+		// If force was true or node is valid to expand, provide intelligent fallback
+		resp.CanExpand = true
+		resp.IsSaturated = false
 		color := req.BranchColor
 		if color == "" {
 			color = "#0EA5E9"
@@ -471,6 +553,10 @@ Task: Generate 3 to 4 microscopic deep-dive sub-branches uncovering internal mec
 			resp.NewEdges[i].Style = "solid"
 		}
 		resp.NewEdges[i].Arrow = true
+	}
+
+	if !resp.CanExpand || len(resp.NewNodes) == 0 {
+		return &resp, nil
 	}
 
 	// Efficient Database Auto-Persistence: If mind_map_id is provided, automatically append nodes to PostgreSQL

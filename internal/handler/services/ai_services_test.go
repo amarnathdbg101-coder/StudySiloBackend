@@ -667,4 +667,52 @@ func TestDiagramService_QuizAndFlashcards(t *testing.T) {
 	}
 }
 
+func TestDiagramService_ExpandNodeSaturation(t *testing.T) {
+	orch := ai.NewOrchestrator([]string{}, []string{}, []string{})
+	pdfService := NewPDFExportService(nil, nil)
+	diagService := NewDiagramService(orch, nil, nil, nil, pdfService)
+	ctx := context.Background()
+
+	// 1. Asymptotic complexity leaf node WITHOUT force should be marked saturated
+	satResp, err := diagService.ExpandNode(ctx, "user-1", dto.ExpandNodeRequest{
+		Concept:     "Merge Sort",
+		NodeID:      "node_complexity",
+		NodeLabel:   "Time & Space Complexity",
+		NodeDetails: "Worst Case: O(N log N), Auxiliary Space: O(N)",
+		NodeDepth:   2,
+		Force:       false,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error during expand-node saturation check: %v", err)
+	}
+	if !satResp.IsSaturated || satResp.CanExpand {
+		t.Errorf("expected node to be saturated with can_expand=false, got saturated=%v can_expand=%v", satResp.IsSaturated, satResp.CanExpand)
+	}
+	if satResp.SaturationReason == "" {
+		t.Errorf("expected pedagogical saturation reason explaining why not to expand further")
+	}
+	if len(satResp.NewNodes) != 0 {
+		t.Errorf("expected 0 new nodes for saturated node without force, got %d", len(satResp.NewNodes))
+	}
+
+	// 2. SAME node WITH force=true should force-expand into microscopic details
+	forcedResp, err := diagService.ExpandNode(ctx, "user-1", dto.ExpandNodeRequest{
+		Concept:     "Merge Sort",
+		NodeID:      "node_complexity",
+		NodeLabel:   "Time & Space Complexity",
+		NodeDetails: "Worst Case: O(N log N), Auxiliary Space: O(N)",
+		NodeDepth:   2,
+		Force:       true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error during force expand-node: %v", err)
+	}
+	if !forcedResp.CanExpand {
+		t.Errorf("expected can_expand=true when force=true, got %v", forcedResp.CanExpand)
+	}
+	if len(forcedResp.NewNodes) < 3 {
+		t.Errorf("expected at least 3 deep microscopic sub-branches on force-expand, got %d", len(forcedResp.NewNodes))
+	}
+}
+
 

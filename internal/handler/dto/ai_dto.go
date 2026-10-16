@@ -300,14 +300,19 @@ type ExpandNodeRequest struct {
 	NodeDetails string `json:"node_details,omitempty"`
 	BranchColor string `json:"branch_color,omitempty"`
 	MindMapID   string `json:"mind_map_id,omitempty"`
+	NodeDepth   int    `json:"node_depth,omitempty"`
+	Force       bool   `json:"force,omitempty"`
 	Provider    string `json:"provider,omitempty"`
 	Model       string `json:"model,omitempty"`
 }
 
 type ExpandNodeResponse struct {
-	NodeID   string      `json:"node_id"`
-	NewNodes []GraphNode `json:"new_nodes"`
-	NewEdges []GraphEdge `json:"new_edges"`
+	NodeID           string      `json:"node_id"`
+	CanExpand        bool        `json:"can_expand"`
+	IsSaturated      bool        `json:"is_saturated"`
+	SaturationReason string      `json:"saturation_reason,omitempty"`
+	NewNodes         []GraphNode `json:"new_nodes"`
+	NewEdges         []GraphEdge `json:"new_edges"`
 }
 
 type SaveMindMapRequest struct {
