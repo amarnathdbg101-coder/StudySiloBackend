@@ -3,8 +3,10 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"goProjectStructure/internal/handler/dto"
 	"goProjectStructure/internal/handler/model"
@@ -754,6 +756,107 @@ func TestCleanConceptAndExtractIntent(t *testing.T) {
 		if !strings.Contains(directive, tc.expectedDirective) {
 			t.Errorf("for input %q: expected directive containing %q, got %q", tc.input, tc.expectedDirective, directive)
 		}
+	}
+}
+
+type mockDoubtCacheRepo struct {
+	store map[string]*dto.DoubtResponse
+	gets  int
+	sets  int
+}
+
+func newMockDoubtCacheRepo() *mockDoubtCacheRepo {
+	return &mockDoubtCacheRepo{store: make(map[string]*dto.DoubtResponse)}
+}
+
+func (m *mockDoubtCacheRepo) Get(_ context.Context, queryHash, question, mode, language string) (*dto.DoubtResponse, error) {
+	m.gets++
+	if resp, ok := m.store[queryHash]; ok {
+		// Strict equality check matching repository behavior
+		if strings.EqualFold(strings.TrimSpace(question), strings.TrimSpace(resp.Question)) {
+			return resp, nil
+		}
+	}
+	return nil, errors.New("cache miss")
+}
+
+func (m *mockDoubtCacheRepo) Set(_ context.Context, queryHash, question, mode, language, model string, resp *dto.DoubtResponse) error {
+	m.sets++
+	m.store[queryHash] = resp
+	return nil
+}
+
+func TestAITutorService_DoubtCacheStrictBypass(t *testing.T) {
+	generator := &mockAITutorGenerator{response: "This is the generated AI answer."}
+	cacheRepo := newMockDoubtCacheRepo()
+	tutor := NewAITutorService(generator, nil).WithDoubtCache(cacheRepo)
+
+	req1 := dto.DoubtRequest{
+		Question: "State and prove Newton's second law of motion",
+		Mode:     "academic",
+		Language: "english",
+	}
+
+	// 1. First call: Cache miss, generator MUST be called
+	resp1, err := tutor.SolveDoubt(context.Background(), "", req1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp1.SolutionMarkdown != generator.response {
+		t.Fatalf("expected response from generator, got %q", resp1.SolutionMarkdown)
+	}
+	if generator.generateTextCalls != 1 {
+		t.Fatalf("expected 1 generator call on miss, got %d", generator.generateTextCalls)
+	}
+
+	// Wait briefly for async cache Set
+	time.Sleep(50 * time.Millisecond)
+
+	// 2. Second call with IDENTICAL question: Cache hit, generator must NOT be called again
+	resp2, err := tutor.SolveDoubt(context.Background(), "", req1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp2.SolutionMarkdown != generator.response {
+		t.Fatalf("expected response from cache, got %q", resp2.SolutionMarkdown)
+	}
+	if generator.generateTextCalls != 1 {
+		t.Fatalf("generator should NOT be called on cache hit; calls=%d", generator.generateTextCalls)
+	}
+
+	// 3. Third call: Different question (Newton's FIRST law instead of SECOND law)
+	// Must NOT match cached answer!
+	req2 := dto.DoubtRequest{
+		Question: "State and prove Newton's first law of motion",
+		Mode:     "academic",
+		Language: "english",
+	}
+	resp3, err := tutor.SolveDoubt(context.Background(), "", req2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if generator.generateTextCalls != 2 {
+		t.Fatalf("expected generator to be called for different question; calls=%d", generator.generateTextCalls)
+	}
+	_ = resp3
+
+	// 4. Fourth call: Same question string but with conversation history (follow-up context)
+	// Must completely BYPASS cache to avoid false positives!
+	reqWithHistory := dto.DoubtRequest{
+		Question: "State and prove Newton's second law of motion",
+		Mode:     "academic",
+		Language: "english",
+		ConversationHistory: []dto.ConversationTurn{
+			{Role: "user", Content: "Hello tutor"},
+			{Role: "assistant", Content: "Hello student"},
+		},
+	}
+	_, err = tutor.SolveDoubt(context.Background(), "", reqWithHistory)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if generator.generateTextCalls != 3 {
+		t.Fatalf("expected generator to be called when conversation history is present (cache bypass); calls=%d", generator.generateTextCalls)
 	}
 }
 
