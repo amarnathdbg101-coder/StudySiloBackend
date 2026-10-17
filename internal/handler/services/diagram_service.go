@@ -368,6 +368,10 @@ CRITICAL ARCHITECTURAL DIRECTIVES:
 
 	// Normalize and cross-fill description, details, and formulas for all nodes
 	for i := range diagram.Nodes {
+		diagram.Nodes[i].Label = ai.SanitizeLatex(diagram.Nodes[i].Label)
+		diagram.Nodes[i].Description = ai.SanitizeLatex(diagram.Nodes[i].Description)
+		diagram.Nodes[i].Details = ai.SanitizeLatex(diagram.Nodes[i].Details)
+		diagram.Nodes[i].ExamTrap = ai.SanitizeLatex(diagram.Nodes[i].ExamTrap)
 		if diagram.Nodes[i].Description == "" && diagram.Nodes[i].Details != "" {
 			diagram.Nodes[i].Description = diagram.Nodes[i].Details
 		}
@@ -680,6 +684,10 @@ Task: Evaluate cognitive saturation or generate 3 to 4 microscopic deep-dive sub
 	}
 
 	for i := range resp.NewNodes {
+		resp.NewNodes[i].Label = ai.SanitizeLatex(resp.NewNodes[i].Label)
+		resp.NewNodes[i].Description = ai.SanitizeLatex(resp.NewNodes[i].Description)
+		resp.NewNodes[i].Details = ai.SanitizeLatex(resp.NewNodes[i].Details)
+		resp.NewNodes[i].ExamTrap = ai.SanitizeLatex(resp.NewNodes[i].ExamTrap)
 		if resp.NewNodes[i].ColorHex == "" && req.BranchColor != "" {
 			resp.NewNodes[i].ColorHex = req.BranchColor
 		}

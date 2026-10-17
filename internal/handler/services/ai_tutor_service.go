@@ -578,6 +578,13 @@ func buildTutorPrompt(mode, question, contextNotes string, profileParams ...inte
 - Do not invent facts, formulas, calculations, exam statistics, or citations. State uncertainty and ask for missing information when needed.
 - Check that every explanation, formula, and example is relevant to the exact subject asked.`
 
+	const audioPedagogyDirective = `
+🎙️ AUDIO-PEDAGOGY & CLEAN KaTeX DIRECTIVE (Mandatory for Voice & Visual Harmony):
+- SPOKEN CADENCE: Frame explanations with clear, verbal transitions ("Step 1: First, we isolate x...", "Intuitively, this means...", "As a result, we observe that...").
+- STANDARD KaTeX NOTATION: Use clean, standard single-backslash KaTeX formatting for math and science ($$ ... $$ for standalone formulas, $ ... $ for inline variables). Never double-escape backslashes (write \frac, not \\frac).
+- EXPLICIT SI UNITS & CONDITIONS: In physics and chemistry, always explicitly state standard SI units (e.g., m/s^2, J, kg) and physical states (e.g., (s), (aq), (g)) so both visual rendering and voice synthesizers deliver crystal-clear pedagogical explanations.
+- NATURAL BREATHING HEADERS: Keep headings and bullet items crisp and complete without dangling syntax soup.`
+
 	studentContext := ""
 	if targetExam != "" || academicLevel != "" || len(weakTopics) > 0 {
 		studentContext = fmt.Sprintf(`
@@ -590,9 +597,9 @@ func buildTutorPrompt(mode, question, contextNotes string, profileParams ...inte
 	}
 
 	if studentContext != "" {
-		return fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s", accuracyInstruction, studentContext, situationInstruction, getModePrompt(mode))
+		return fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s\n\n%s", accuracyInstruction, studentContext, situationInstruction, audioPedagogyDirective, getModePrompt(mode))
 	}
-	return fmt.Sprintf("%s\n\n%s\n\n%s", accuracyInstruction, situationInstruction, getModePrompt(mode))
+	return fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s", accuracyInstruction, situationInstruction, audioPedagogyDirective, getModePrompt(mode))
 }
 
 func getModePrompt(mode string) string {
