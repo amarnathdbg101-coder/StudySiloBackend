@@ -145,9 +145,12 @@ func (r *doubtCacheRepo) Get(ctx context.Context, queryHash, question, mode, lan
 		_, _ = r.db.Exec(bgCtx, `UPDATE ai_doubt_cache SET hit_count = hit_count + 1, updated_at = NOW() WHERE query_hash = $1`, hash)
 	}(queryHash)
 
-	var chips []string
+	chips := []string{}
 	if len(chipsJSON) > 0 {
 		_ = json.Unmarshal(chipsJSON, &chips)
+	}
+	if chips == nil {
+		chips = []string{}
 	}
 
 	return &dto.DoubtResponse{
@@ -175,7 +178,13 @@ func (r *doubtCacheRepo) Set(ctx context.Context, queryHash, question, mode, lan
 		language = "auto"
 	}
 
-	chipsJSON, _ := json.Marshal(resp.FollowUpChips)
+	// Always ensure valid JSON array string (avoids pgx bytea coercion -> SQLSTATE 22P02 invalid input syntax for type json)
+	chipsStr := "[]"
+	if len(resp.FollowUpChips) > 0 {
+		if b, err := json.Marshal(resp.FollowUpChips); err == nil && len(b) > 0 {
+			chipsStr = string(b)
+		}
+	}
 	normalizedQ := strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(question)), " "))
 
 	query := `
@@ -186,7 +195,7 @@ func (r *doubtCacheRepo) Set(ctx context.Context, queryHash, question, mode, lan
 		) VALUES (
 			$1, $2, $3, $4, $5, $6,
 			$7, $8, $9, $10,
-			$11, 1, NOW(), NOW()
+			$11::jsonb, 1, NOW(), NOW()
 		)
 		ON CONFLICT (query_hash) DO UPDATE SET
 			hit_count = ai_doubt_cache.hit_count + 1,
@@ -195,7 +204,7 @@ func (r *doubtCacheRepo) Set(ctx context.Context, queryHash, question, mode, lan
 	_, err := r.db.Exec(ctx, query,
 		queryHash, normalizedQ, mode, language, modelName, resp.ActiveProvider,
 		resp.SolutionMarkdown, resp.SpokenTranscript, resp.CoreConcept, resp.CommonPitfalls,
-		chipsJSON,
+		chipsStr,
 	)
 	if err != nil {
 		if r.logger != nil {
