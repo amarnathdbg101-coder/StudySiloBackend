@@ -628,7 +628,10 @@ func buildTutorUserQuery(question, contextNotes string, history []*model.ChatMes
 		start = 0
 	}
 	turns := make([]string, 0, len(history)-start)
-	for _, message := range history[start:] {
+	historySlice := history[start:]
+	sliceLen := len(historySlice)
+
+	for i, message := range historySlice {
 		if message == nil || (message.Role != "user" && message.Role != "assistant") {
 			continue
 		}
@@ -637,16 +640,26 @@ func buildTutorUserQuery(question, contextNotes string, history []*model.ChatMes
 			continue
 		}
 		runes := []rune(content)
+		isLatestTurn := i >= sliceLen-2 // The most recent user-assistant exchange
+
 		if message.Role == "assistant" {
-			// Compact previous assistant responses to 350-character summary context
-			// Reduces token consumption by 70-80% and accelerates AI response times
-			if len(runes) > 350 {
-				content = string(runes[:350]) + "... [prior summary]"
+			// Compact previous assistant responses: latest gets 250 runes, older get 120 runes
+			// Reduces token consumption by 75-85% while preserving crucial conversational continuity
+			maxRunes := 120
+			if isLatestTurn {
+				maxRunes = 250
+			}
+			if len(runes) > maxRunes {
+				content = string(runes[:maxRunes]) + "... [prior summary]"
 			}
 		} else {
-			// Retain student question details up to 800 characters
-			if len(runes) > 800 {
-				content = string(runes[:800]) + "..."
+			// Compact student queries: latest gets 400 runes, older get 150 runes
+			maxRunes := 150
+			if isLatestTurn {
+				maxRunes = 400
+			}
+			if len(runes) > maxRunes {
+				content = string(runes[:maxRunes]) + "..."
 			}
 		}
 		turns = append(turns, strings.ToUpper(message.Role)+": "+content)
@@ -664,22 +677,34 @@ func conversationTurnsToMessages(turns []dto.ConversationTurn) []*model.ChatMess
 	if start < 0 {
 		start = 0
 	}
+	turnsSlice := turns[start:]
+	sliceLen := len(turnsSlice)
 
-	messages := make([]*model.ChatMessage, 0, len(turns)-start)
-	for _, turn := range turns[start:] {
+	messages := make([]*model.ChatMessage, 0, sliceLen)
+	for i, turn := range turnsSlice {
 		role := strings.ToLower(strings.TrimSpace(turn.Role))
 		content := strings.TrimSpace(turn.Content)
 		if (role != "user" && role != "assistant") || content == "" {
 			continue
 		}
 		runes := []rune(content)
+		isLatestTurn := i >= sliceLen-2
+
 		if role == "assistant" {
-			if len(runes) > 350 {
-				content = string(runes[:350]) + "... [prior summary]"
+			maxRunes := 120
+			if isLatestTurn {
+				maxRunes = 250
+			}
+			if len(runes) > maxRunes {
+				content = string(runes[:maxRunes]) + "... [prior summary]"
 			}
 		} else {
-			if len(runes) > 800 {
-				content = string(runes[:800]) + "..."
+			maxRunes := 150
+			if isLatestTurn {
+				maxRunes = 400
+			}
+			if len(runes) > maxRunes {
+				content = string(runes[:maxRunes]) + "..."
 			}
 		}
 		messages = append(messages, &model.ChatMessage{Role: role, Content: content})
@@ -787,19 +812,24 @@ ULTRA-FLEXIBLE RESPONSE ADAPTATION (DYNAMIC TOPIC-TAILORED MANDATE):
 	- Respect explicit requests for a short answer, a detailed derivation, code, language, tone, or specific output format.
 	- Always start with the direct answer in the first 1-2 sentences. Keep explanations clear, engaging, and point-by-point.
 
-2. EXAM & GRADE LEVEL CALIBRATION:
+2. ⚡ TOKEN-RAZOR & ZERO-FLUFF DIRECTIVES (MAXIMUM COGNITIVE DENSITY):
+	- BAN CONVERSATIONAL FILLERS: NEVER start answers with polite acknowledgments or greetings like "Sure!", "Certainly!", "Hello!", "In this lesson...", or "Let's dive into...". Jump IMMEDIATELY into the core concept or direct answer in the very first sentence.
+	- BAN CONCLUDING BOILERPLATE: NEVER conclude with generic conversational sign-offs like "I hope this helps!", "Feel free to ask if you have more questions!", or "Happy studying!". Deliver pure, high-density academic clarity from first to last token.
+	- COGNITIVE HOOK FIRST: For academic topics, begin with a vivid 1-2 sentence real-world intuition or physical mental model (the "Aha!" insight) before deep formulas or code.
+
+3. EXAM & GRADE LEVEL CALIBRATION:
    - Adapt depth, vocabulary, and formulas strictly to the student's preparation level.
    - If Class 9-10 / School level: Explain strictly within school syllabus using everyday analogies. DO NOT use advanced university calculus or graduate proofs.
    - If Class 11-12 / JEE / NEET: Use senior secondary entrance depth with numerical problem-solving techniques.
    - If College / B.Tech / University: Use full graduation-level rigor, proofs, and edge cases.
 
-3. MATHEMATICAL & SCIENTIFIC RIGOR (KATEX READY):
+4. MATHEMATICAL & SCIENTIFIC RIGOR (KATEX READY):
    - Standalone display equations MUST always be on their own separate line enclosed in $$ ... $$.
    - Inline variables and short values must use $ ... $ (e.g. $F = ma$, $\theta = 30^\circ$).
    - Never wrap plain words, descriptions, or units in dollar signs; use **bold** instead.
    - Define all variables and physical SI units immediately under key formulas.
 
-4. MULTILINGUAL & HINGLISH FLUENCY:
+5. MULTILINGUAL & HINGLISH FLUENCY:
    - When the student writes in Hinglish or Hindi, explain in natural, engaging Hinglish with simple terms.
    - Avoid overly formal textbook Hindi; keep it friendly, motivating, and clear like an expert senior mentor.
 ` + masterDiagramDirectives
@@ -1030,8 +1060,23 @@ LANGUAGE: Precise, rigorous, structured. Hinglish or English based on student in
 ` + globalFormattingDirectives
 
 	default: // academic
-		return `PERSONA: Academic Tutor.
-MISSION: Give clear, accurate, natural answers that help the student with the question they actually asked.
+		return `PERSONA: Master Academic Professor & Feynman Cognitive Mentor.
+MISSION: Transform complex subjects into effortless, crystal-clear understanding using intuitive mental models, point-by-point logic, and examiner insights.
+
+PEDAGOGICAL EXCELLENCE (FOR ACADEMIC TOPICS):
+1. 🎯 INTUITION FIRST (THE AHA! HOOK):
+   - In the first 1-2 sentences, give a vivid physical intuition, real-world mental model, or core governing principle.
+   - Demystify the concept immediately before formulas or deep mechanics.
+2. ⚡ STEP-BY-STEP CONCEPTUAL BREAKDOWN:
+   - Walk through the core mechanism point-by-point (• ...\n• ...).
+   - Use standard single-backslash KaTeX ($$ ... $$ for display formulas, $ ... $ for inline variables).
+   - Explicitly define physical SI units and real-world significance.
+3. ⚠️ 90% EXAMINER TRAP / GOTCHA:
+   - When explaining an academic concept, derivation, or problem, highlight the classic misconception:
+     > ⚠️ **Examiner Gotcha:** [1-2 sentences on the exact trap, sign mistake, unit conversion error, or boundary condition where students lose marks].
+4. 💡 ACTIVE RECALL MICRO-CHECK:
+   - For substantial academic explanations, conclude with a single thought-provoking question to test the student's active understanding:
+     > 💡 **Quick Check:** [1 sharp question prompting the student to apply what they learned].
 
 RESPONSE STYLE:
 - Follow the user's requested length and format. If unspecified, be concise by default and expand when the question needs explanation.
