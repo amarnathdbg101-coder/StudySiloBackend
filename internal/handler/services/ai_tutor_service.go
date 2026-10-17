@@ -274,6 +274,8 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 	if commonPitfalls == "" {
 		commonPitfalls = extractSection(answerText, "Common Pitfalls")
 	}
+	coreConcept = ai.SanitizeLatex(coreConcept)
+	commonPitfalls = ai.SanitizeLatex(commonPitfalls)
 
 	// Follow-up chips removed permanently as requested for clean, point-by-point AI response
 	followUpChips := []string{}
@@ -287,6 +289,7 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 		ActiveProvider:   provider,
 		ActiveModel:      modelName,
 		SpokenTranscript: ai.GenerateSpokenTranscript(answerText),
+		Blocks:           ai.ParseMarkdownBlocks(answerText),
 	}
 
 	// Asynchronously save to PostgreSQL Doubt Cache if eligible (exact standalone academic question)

@@ -402,6 +402,10 @@ CRITICAL ARCHITECTURAL DIRECTIVES:
 		}
 	}
 
+	// ⚡ Server-Side Layout Engine: Pre-compute non-overlapping 2D layout coordinates
+	// Offloads O(N^2) trigonometric math and bounding-box collision loops from mobile CPU
+	ai.ComputeDiagramLayout(&diagram, 2800, 2000)
+
 	return &diagram, err
 }
 

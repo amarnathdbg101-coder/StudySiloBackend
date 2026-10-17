@@ -55,3 +55,22 @@ type CognitiveDiagnosisResponse struct {
 	RecommendedActions []string       `json:"recommended_actions"`
 	TopicMastery       map[string]int `json:"topic_mastery"`
 }
+
+// SmartPromptItemDto represents a dynamically generated context-aware prompt suggestion.
+type SmartPromptItemDto struct {
+	Label  string `json:"label"`
+	Prompt string `json:"prompt"`
+	Icon   string `json:"icon"` // e.g., "track_changes", "lightbulb", "functions", "bolt", "timer", "compare_arrows", "help", "layers", "warning", "table", "checklist", "science", "rule", "show_chart", "psychology"
+}
+
+// SmartContextResponse contains complete server-synthesized prompts, hints, and syllabus recommendations.
+type SmartContextResponse struct {
+	TargetExam       string               `json:"target_exam"`
+	QuickChips       []SmartPromptItemDto `json:"quick_chips"`
+	TutorSuggestions []SmartPromptItemDto `json:"tutor_suggestions"`
+	SuggestedTopics  []string             `json:"suggested_topics"`
+	FocusTopic       string               `json:"focus_topic"`
+	InputHint        string               `json:"input_hint"`
+	TopicHint        string               `json:"topic_hint"`
+}
+

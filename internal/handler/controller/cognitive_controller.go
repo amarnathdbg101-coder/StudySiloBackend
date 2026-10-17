@@ -39,6 +39,26 @@ func (c *CognitiveController) GetProfile(w http.ResponseWriter, r *http.Request)
 	reuse.Success(w, "cognitive profile retrieved successfully", profile)
 }
 
+// GetSmartContext returns dynamic server-synthesized smart prompts, hints, and exam syllabus recommendations
+func (c *CognitiveController) GetSmartContext(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetUserFromContext(r.Context())
+	userID := "guest-user"
+	if claims != nil && claims.UserID != "" {
+		userID = claims.UserID
+	}
+
+	targetExam := r.URL.Query().Get("exam")
+	tutorMode := r.URL.Query().Get("mode")
+
+	smartCtx, err := c.cognitiveService.GetSmartContext(r.Context(), userID, targetExam, tutorMode)
+	if err != nil {
+		reuse.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	reuse.Success(w, "smart context retrieved successfully", smartCtx)
+}
+
 // UpdateGoals updates target exam, academic level, and custom topics
 func (c *CognitiveController) UpdateGoals(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.GetUserFromContext(r.Context())

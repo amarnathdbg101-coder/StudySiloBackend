@@ -116,10 +116,10 @@ Rules:
 			}
 			cards = append(cards, dto.FlashcardDeckCard{
 				ID:          fmt.Sprintf("card-%d", i+1),
-				Front:       c.Front,
-				Back:        c.Back,
+				Front:       ai.SanitizeLatex(c.Front),
+				Back:        ai.SanitizeLatex(c.Back),
 				Difficulty:  cardDiff,
-				Topic:       cardTopic,
+				Topic:       ai.SanitizeLatex(cardTopic),
 				IsMastered:  false,
 				IsReviewed:  false,
 				Repetitions: 0,

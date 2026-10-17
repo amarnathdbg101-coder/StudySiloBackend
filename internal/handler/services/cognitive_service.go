@@ -25,6 +25,7 @@ type CognitiveService interface {
 	DemoteTopic(ctx context.Context, userID, topic string) (*dto.CognitiveProfileResponse, error)
 	DeleteTopic(ctx context.Context, userID, topic string) (*dto.CognitiveProfileResponse, error)
 	RecordActivity(ctx context.Context, userID string, req dto.RecordActivityRequest) (*dto.CognitiveProfileResponse, error)
+	GetSmartContext(ctx context.Context, userID, targetExam, tutorMode string) (*dto.SmartContextResponse, error)
 }
 
 type cognitiveService struct {
@@ -62,6 +63,30 @@ func (s *cognitiveService) GetProfile(ctx context.Context, userID string) (*dto.
 
 	return toProfileResponse(profile), nil
 }
+
+// GetSmartContext returns dynamically generated context-aware prompts, syllabus recommendations, and active recall hints.
+func (s *cognitiveService) GetSmartContext(ctx context.Context, userID, targetExam, tutorMode string) (*dto.SmartContextResponse, error) {
+	var weakTopics []string
+	var strongTopics []string
+	var examTraps []string
+	resolvedExam := strings.TrimSpace(targetExam)
+
+	if userID != "" && userID != "guest-user" && s.cognitiveRepo != nil {
+		profile, err := s.cognitiveRepo.GetByUserID(ctx, userID)
+		if err == nil && profile != nil {
+			weakTopics = profile.WeakTopics
+			strongTopics = profile.StrongTopics
+			examTraps = profile.ExamTraps
+			if resolvedExam == "" {
+				resolvedExam = profile.TargetExam
+			}
+		}
+	}
+
+	res := ai.GenerateSmartContext(resolvedExam, weakTopics, strongTopics, examTraps, tutorMode)
+	return &res, nil
+}
+
 
 func (s *cognitiveService) UpdateGoals(ctx context.Context, userID string, req dto.UpdateCognitiveGoalRequest) (*dto.CognitiveProfileResponse, error) {
 	if userID == "" || userID == "guest-user" || s.cognitiveRepo == nil {

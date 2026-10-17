@@ -194,6 +194,7 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 		// Student Cognitive AI Memory Profile & Mastery Hub
 		r.Route("/profile/cognitive", func(r chi.Router) {
 			r.With(middleware.OptionalJWTAuth(cfg.JwtSecret)).Get("/", cognitiveCtrl.GetProfile)
+			r.With(middleware.OptionalJWTAuth(cfg.JwtSecret)).Get("/smart-context", cognitiveCtrl.GetSmartContext)
 			r.With(middleware.JWTAuth(cfg.JwtSecret)).Put("/", cognitiveCtrl.UpdateGoals)
 			r.With(middleware.OptionalJWTAuth(cfg.JwtSecret)).Post("/diagnose", cognitiveCtrl.Diagnose)
 

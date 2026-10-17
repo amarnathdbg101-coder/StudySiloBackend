@@ -217,6 +217,12 @@ RULES:
 		if q.Difficulty == "" {
 			q.Difficulty = difficulty
 		}
+		q.QuestionText = ai.SanitizeLatex(q.QuestionText)
+		for optIdx := range q.Options {
+			q.Options[optIdx] = ai.SanitizeLatex(q.Options[optIdx])
+		}
+		q.Explanation = ai.SanitizeLatex(q.Explanation)
+		q.TrapWarning = ai.SanitizeLatex(q.TrapWarning)
 		questions[i] = q
 	}
 
