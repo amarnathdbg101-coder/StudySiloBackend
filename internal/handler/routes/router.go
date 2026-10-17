@@ -76,11 +76,12 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 	syncRepo := repository.NewSyncRepo(db, logger)
 	mindMapRepo := repository.NewMindMapRepo(db, logger)
 	flashcardRepo := repository.NewFlashcardRepo(db, logger)
+	doubtCacheRepo := repository.NewDoubtCacheRepo(db, logger)
 
 	// 4. Domain & AI Services
 	aiOrchestrator := ai.NewOrchestrator(cfg.GeminiAPIKeys, cfg.OpenAIAPIKeys, cfg.ClaudeAPIKeys)
 	authService := services.NewAuthService(userRepo)
-	aiTutorService := services.NewAITutorService(aiOrchestrator, chatRepo, cognitiveRepo)
+	aiTutorService := services.NewAITutorService(aiOrchestrator, chatRepo, cognitiveRepo).WithDoubtCache(doubtCacheRepo)
 	notesAnalyzerService := services.NewNotesAnalyzerService(aiOrchestrator, noteRepo)
 	pdfExportService := services.NewPDFExportService(noteRepo, quizRepo)
 	diagramService := services.NewDiagramService(aiOrchestrator, mindMapRepo, quizRepo, flashcardRepo, pdfExportService)

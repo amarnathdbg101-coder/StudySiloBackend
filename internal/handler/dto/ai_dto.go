@@ -49,6 +49,7 @@ type DoubtResponse struct {
 	SessionID          string   `json:"session_id,omitempty"`
 	SessionTitle       string   `json:"session_title,omitempty"`
 	AssistantMessageID string   `json:"assistant_message_id,omitempty"`
+	SpokenTranscript   string   `json:"spoken_transcript,omitempty"`
 }
 
 type CreateSessionRequest struct {

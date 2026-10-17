@@ -98,6 +98,7 @@ type aiTutorStreamEvent struct {
 	SessionTitle       string   `json:"session_title,omitempty"`
 	AssistantMessageID string   `json:"assistant_message_id,omitempty"`
 	FollowUpChips      []string `json:"follow_up_chips,omitempty"`
+	SpokenTranscript   string   `json:"spoken_transcript,omitempty"`
 }
 
 func (c *AIController) SolveDoubtStream(w http.ResponseWriter, r *http.Request) {
@@ -205,6 +206,7 @@ func (c *AIController) SolveDoubtStream(w http.ResponseWriter, r *http.Request) 
 		SessionTitle:       response.SessionTitle,
 		AssistantMessageID: response.AssistantMessageID,
 		FollowUpChips:      response.FollowUpChips,
+		SpokenTranscript:   response.SpokenTranscript,
 	})
 }
 

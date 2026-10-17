@@ -23,12 +23,14 @@ type AITutorService interface {
 	UpdateSession(ctx context.Context, userID, sessionID, title string) error
 	DeleteSession(ctx context.Context, userID, sessionID string) error
 	DeleteChatTurn(ctx context.Context, userID, sessionID, messageID string) error
+	WithDoubtCache(repo repository.DoubtCacheRepository) AITutorService
 }
 
 type aiTutorService struct {
-	orchestrator  aiTutorGenerator
-	chatRepo      repository.ChatRepository
-	cognitiveRepo repository.CognitiveRepository
+	orchestrator   aiTutorGenerator
+	chatRepo       repository.ChatRepository
+	cognitiveRepo  repository.CognitiveRepository
+	doubtCacheRepo repository.DoubtCacheRepository
 }
 
 type aiTutorGenerator interface {
@@ -54,6 +56,11 @@ func NewAITutorService(
 		chatRepo:      chatRepo,
 		cognitiveRepo: cogRepo,
 	}
+}
+
+func (s *aiTutorService) WithDoubtCache(repo repository.DoubtCacheRepository) AITutorService {
+	s.doubtCacheRepo = repo
+	return s
 }
 
 func (s *aiTutorService) SolveDoubt(ctx context.Context, userID string, req dto.DoubtRequest) (*dto.DoubtResponse, error) {
@@ -115,6 +122,88 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 	if usesClientHistory || len(history) == 0 {
 		history = conversationTurnsToMessages(req.ConversationHistory)
 	}
+
+	cacheKey := repository.ComputeDoubtCacheKey(req)
+	// ZERO FALSE-POSITIVE RULE:
+	// If this doubt has any conversational history (from DB or client request), or is an edit/regeneration,
+	// it is a contextual follow-up. We MUST bypass cache so we never return a stale or generic answer.
+	if len(history) > 0 {
+		cacheKey = ""
+	}
+
+	if cacheKey != "" && s.doubtCacheRepo != nil {
+		cached, cErr := s.doubtCacheRepo.Get(ctx, cacheKey, req.Question, req.Mode, aiLanguage)
+		if cErr == nil && cached != nil && cached.SolutionMarkdown != "" {
+			if onChunk != nil {
+				onChunk(cached.SolutionMarkdown)
+			}
+
+			// Persist to user's chat history if logged in
+			if userID != "" && s.chatRepo != nil {
+				scopeType := req.ScopeType
+				if scopeType == "" {
+					scopeType = "chat"
+				}
+
+				var sessionTitle string
+				if sessionID == "" && (scopeType == "chat" || scopeType == "session" || scopeType == "global") {
+					sessionTitle = strings.TrimSpace(req.Question)
+					if len(sessionTitle) > 50 {
+						sessionTitle = sessionTitle[:50] + "..."
+					}
+					newSession := &model.ChatSession{
+						UserID: userID,
+						Title:  sessionTitle,
+					}
+					if err := s.chatRepo.CreateSession(ctx, newSession); err == nil {
+						sessionID = newSession.ID
+						cached.SessionID = sessionID
+						cached.SessionTitle = sessionTitle
+					}
+				} else if sessionID != "" {
+					_ = s.chatRepo.TouchSession(ctx, userID, sessionID)
+					cached.SessionID = sessionID
+				}
+
+				effectiveScopeID := sessionID
+				if effectiveScopeID == "" {
+					effectiveScopeID = req.ScopeID
+				}
+
+				_ = s.chatRepo.SaveMessage(ctx, &model.ChatMessage{
+					UserID:    userID,
+					ScopeType: scopeType,
+					ScopeID:   effectiveScopeID,
+					Role:      "user",
+					Content:   req.Question,
+				})
+
+				assistantMessage := &model.ChatMessage{
+					UserID:    userID,
+					ScopeType: scopeType,
+					ScopeID:   effectiveScopeID,
+					Role:      "assistant",
+					Content:   cached.SolutionMarkdown,
+				}
+				if err := s.chatRepo.SaveMessage(ctx, assistantMessage); err == nil {
+					cached.AssistantMessageID = assistantMessage.ID
+				}
+			}
+
+			// Asynchronously record learning activity in student's Cognitive Profile
+			if userID != "" && userID != "guest-user" && s.cognitiveRepo != nil {
+				go func(uid, q string) {
+					bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					defer cancel()
+					topic := extractTopicSnippet(q)
+					_, _ = s.cognitiveRepo.RecordActivity(bgCtx, uid, "doubt", topic, 2)
+				}(userID, req.Question)
+			}
+
+			return cached, nil
+		}
+	}
+
 	userQuery := buildTutorUserQuery(req.Question, req.ContextNotes, history)
 	if aiLanguage != "" && aiLanguage != "auto" && aiLanguage != "all" {
 		userQuery = fmt.Sprintf("%s\n\n[MANDATORY RESPONSE LANGUAGE: %s. Respond entirely in %s!]", userQuery, strings.ToUpper(aiLanguage), aiLanguage)
@@ -197,6 +286,16 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 		FollowUpChips:    followUpChips,
 		ActiveProvider:   provider,
 		ActiveModel:      modelName,
+		SpokenTranscript: ai.GenerateSpokenTranscript(answerText),
+	}
+
+	// Asynchronously save to PostgreSQL Doubt Cache if eligible (exact standalone academic question)
+	if cacheKey != "" && s.doubtCacheRepo != nil && resp.SolutionMarkdown != "" {
+		go func(key string, r dto.DoubtRequest, lang string, cached dto.DoubtResponse) {
+			bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = s.doubtCacheRepo.Set(bgCtx, key, r.Question, r.Mode, lang, r.Model, &cached)
+		}(cacheKey, req, aiLanguage, *resp)
 	}
 
 	// Persist to chat messages and manage session if user is authenticated
