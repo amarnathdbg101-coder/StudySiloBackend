@@ -1,6 +1,7 @@
 package reuse
 
 import (
+	"strings"
 	"sync"
 	"time"
 )
@@ -73,6 +74,17 @@ func (c *MemoryCache) Delete(key string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.items, key)
+}
+
+// DeleteByPrefix removes all items whose keys start with the given prefix
+func (c *MemoryCache) DeleteByPrefix(prefix string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for k := range c.items {
+		if strings.HasPrefix(k, prefix) {
+			delete(c.items, k)
+		}
+	}
 }
 
 // Flush removes all items from the cache

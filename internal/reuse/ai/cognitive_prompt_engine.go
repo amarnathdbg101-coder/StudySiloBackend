@@ -151,11 +151,29 @@ func matchesKeyword(text, kw string) bool {
 
 // ResolveCurriculum resolves the exam curriculum domain based on student target exam keyword analysis.
 func ResolveCurriculum(targetExam string) ExamCurriculumData {
+	return ResolveCurriculumWithCustom(targetExam, nil)
+}
+
+// ResolveCurriculumWithCustom resolves the exam curriculum domain, prioritizing custom database curricula before falling back to canonical standardCurricula.
+func ResolveCurriculumWithCustom(targetExam string, customCurricula []ExamCurriculumData) ExamCurriculumData {
 	clean := strings.ToLower(strings.TrimSpace(targetExam))
 	if clean == "" {
+		if len(customCurricula) > 0 {
+			return customCurricula[0]
+		}
 		return standardCurricula[len(standardCurricula)-1] // general
 	}
 
+	// 1. Check custom DB curricula first
+	for _, curr := range customCurricula {
+		for _, kw := range curr.Keywords {
+			if matchesKeyword(clean, kw) {
+				return curr
+			}
+		}
+	}
+
+	// 2. Fall back to standard canonical catalog
 	for _, curr := range standardCurricula {
 		for _, kw := range curr.Keywords {
 			if matchesKeyword(clean, kw) {
@@ -175,7 +193,19 @@ func GenerateSmartContext(
 	examTraps []string,
 	tutorMode string,
 ) dto.SmartContextResponse {
-	curriculum := ResolveCurriculum(targetExam)
+	return GenerateSmartContextWithCurricula(targetExam, weakTopics, strongTopics, examTraps, tutorMode, nil)
+}
+
+// GenerateSmartContextWithCurricula creates context-aware prompt suggestions with dynamic database curricula.
+func GenerateSmartContextWithCurricula(
+	targetExam string,
+	weakTopics []string,
+	strongTopics []string,
+	examTraps []string,
+	tutorMode string,
+	customCurricula []ExamCurriculumData,
+) dto.SmartContextResponse {
+	curriculum := ResolveCurriculumWithCustom(targetExam, customCurricula)
 	examName := strings.TrimSpace(targetExam)
 	if examName == "" {
 		examName = curriculum.DisplayName

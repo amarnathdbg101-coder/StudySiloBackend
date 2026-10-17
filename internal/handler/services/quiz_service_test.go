@@ -130,6 +130,14 @@ func (m *mockCognitiveRepo) SaveDiagnosis(ctx context.Context, userID, summary s
 	return p, nil
 }
 
+func (m *mockCognitiveRepo) GetCurriculum(ctx context.Context, examCode string) (*model.ExamCurriculum, error) {
+	return nil, nil
+}
+
+func (m *mockCognitiveRepo) ListCurricula(ctx context.Context) ([]*model.ExamCurriculum, error) {
+	return nil, nil
+}
+
 func TestQuizService_GenerateAndSubmitFlow(t *testing.T) {
 	orch := ai.NewOrchestrator([]string{}, []string{}, []string{})
 	qRepo := &mockQuizRepo{quizzes: make(map[string]*model.Quiz)}

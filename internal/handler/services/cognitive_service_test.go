@@ -74,4 +74,22 @@ func TestCognitiveService_Flow(t *testing.T) {
 	if len(diag.RecommendedActions) == 0 {
 		t.Errorf("expected recommended actions in diagnosis")
 	}
+
+	// 5. Test SmartContext caching & invalidation
+	ctxResp1, err := svc.GetSmartContext(ctx, "test-user-1", "GATE Computer Science", "socratic")
+	if err != nil {
+		t.Fatalf("failed to get smart context: %v", err)
+	}
+	if len(ctxResp1.QuickChips) == 0 {
+		t.Errorf("expected quick chips in smart context")
+	}
+
+	// Repeat call should hit memory cache instantly
+	ctxResp2, err := svc.GetSmartContext(ctx, "test-user-1", "GATE Computer Science", "socratic")
+	if err != nil {
+		t.Fatalf("failed to get smart context second time: %v", err)
+	}
+	if ctxResp1.FocusTopic != ctxResp2.FocusTopic {
+		t.Errorf("expected cached focus topic to match: %s vs %s", ctxResp1.FocusTopic, ctxResp2.FocusTopic)
+	}
 }

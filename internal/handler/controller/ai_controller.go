@@ -17,6 +17,7 @@ import (
 	"goProjectStructure/internal/handler/services"
 	"goProjectStructure/internal/middleware"
 	"goProjectStructure/internal/reuse"
+	"goProjectStructure/internal/reuse/ai"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -185,14 +186,20 @@ func (c *AIController) SolveDoubtStream(w http.ResponseWriter, r *http.Request) 
 
 	var response *dto.DoubtResponse
 	var err error
+	chunkBuffer := ai.NewStreamChunkBuffer(func(chunk string) {
+		writeEvent(aiTutorStreamEvent{Type: "chunk", Text: chunk})
+	})
+
 	if streamService, supportsStreaming := c.aiTutorService.(aiTutorStreamService); supportsStreaming {
 		response, err = streamService.SolveDoubtStream(r.Context(), userID, req, func(text string) {
-			writeEvent(aiTutorStreamEvent{Type: "chunk", Text: text})
+			chunkBuffer.Write(text)
 		})
+		chunkBuffer.Flush()
 	} else {
 		response, err = c.aiTutorService.SolveDoubt(r.Context(), userID, req)
 		if err == nil && response != nil {
-			writeEvent(aiTutorStreamEvent{Type: "chunk", Text: response.SolutionMarkdown})
+			chunkBuffer.Write(response.SolutionMarkdown)
+			chunkBuffer.Flush()
 		}
 	}
 	if err != nil {

@@ -392,19 +392,33 @@ func (s *quizService) SubmitQuiz(ctx context.Context, id, userID string, req dto
 		TimeTakenSeconds:    req.TimeTakenSeconds,
 	}
 
-	// Persist attempt if database is available
-	if isValidUUID(id) && userID != "" && userID != "guest-user" && s.quizRepo != nil {
-		_ = s.quizRepo.SaveAttempt(ctx, attempt)
+	// ⚡ Go Concurrency: Persist quiz attempt and update student cognitive profile in parallel
+	var updatedProfile *model.CognitiveProfile
+
+	if userID != "" && userID != "guest-user" {
+		var wg sync.WaitGroup
+
+		if isValidUUID(id) && s.quizRepo != nil {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_ = s.quizRepo.SaveAttempt(ctx, attempt)
+			}()
+		}
+
+		if s.cognitiveRepo != nil {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if p, err := s.cognitiveRepo.RecordQuizResult(ctx, userID, percentage, weakTopics, strongTopics, nil); err == nil {
+					updatedProfile = p
+				}
+			}()
+		}
+
+		wg.Wait()
 	}
 
-	// Automatically update student Cognitive Profile (Memory Engine)
-	var updatedProfile *model.CognitiveProfile
-	if userID != "" && userID != "guest-user" && s.cognitiveRepo != nil {
-		p, err := s.cognitiveRepo.RecordQuizResult(ctx, userID, percentage, weakTopics, strongTopics, nil)
-		if err == nil {
-			updatedProfile = p
-		}
-	}
 	if updatedProfile == nil {
 		updatedProfile = &model.CognitiveProfile{
 			StudyStreakDays:   1,

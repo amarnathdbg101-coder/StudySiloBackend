@@ -24,6 +24,8 @@ type CognitiveRepository interface {
 	DemoteTopic(ctx context.Context, userID, topic string) (*model.CognitiveProfile, error)
 	DeleteTopic(ctx context.Context, userID, topic string) (*model.CognitiveProfile, error)
 	SaveDiagnosis(ctx context.Context, userID, summary string, readinessScore int, topicMastery map[string]int, traps, recommendedActions []string) (*model.CognitiveProfile, error)
+	GetCurriculum(ctx context.Context, examCode string) (*model.ExamCurriculum, error)
+	ListCurricula(ctx context.Context) ([]*model.ExamCurriculum, error)
 }
 
 type cognitiveRepo struct {
@@ -471,4 +473,60 @@ func calculateStreak(lastActive time.Time, currentStreak int) int {
 		return currentStreak + 1
 	}
 	return 1 // reset after missing a day
+}
+
+// GetCurriculum retrieves an exam curriculum by its unique code (e.g. "gate_cs", "neet_medical")
+func (r *cognitiveRepo) GetCurriculum(ctx context.Context, examCode string) (*model.ExamCurriculum, error) {
+	if r.db == nil {
+		return nil, errors.New("database connection pool not initialized")
+	}
+
+	query := `
+		SELECT id, exam_code, display_name, keywords, high_yield_topics, common_traps, created_at, updated_at
+		FROM exam_curricula
+		WHERE LOWER(exam_code) = LOWER($1)
+		LIMIT 1;
+	`
+	c := &model.ExamCurriculum{}
+	err := r.db.QueryRow(ctx, query, examCode).Scan(
+		&c.ID, &c.ExamCode, &c.DisplayName,
+		&c.Keywords, &c.HighYieldTopics, &c.CommonTraps,
+		&c.CreatedAt, &c.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// ListCurricula fetches all active academic curricula configured in PostgreSQL
+func (r *cognitiveRepo) ListCurricula(ctx context.Context) ([]*model.ExamCurriculum, error) {
+	if r.db == nil {
+		return nil, errors.New("database connection pool not initialized")
+	}
+
+	query := `
+		SELECT id, exam_code, display_name, keywords, high_yield_topics, common_traps, created_at, updated_at
+		FROM exam_curricula
+		ORDER BY display_name ASC;
+	`
+	rows, err := r.db.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []*model.ExamCurriculum
+	for rows.Next() {
+		c := &model.ExamCurriculum{}
+		if err := rows.Scan(
+			&c.ID, &c.ExamCode, &c.DisplayName,
+			&c.Keywords, &c.HighYieldTopics, &c.CommonTraps,
+			&c.CreatedAt, &c.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		result = append(result, c)
+	}
+	return result, rows.Err()
 }
