@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"goProjectStructure/internal/handler/model"
 	"goProjectStructure/internal/handler/repository"
 	"goProjectStructure/internal/middleware"
+	"goProjectStructure/internal/reuse"
 	"goProjectStructure/internal/reuse/ai"
 )
 
@@ -240,6 +242,9 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 
 	var answerText string
 	var err error
+	var uploadedImageURL string
+	var uploadedAudioURL string
+	var r2UploadWg sync.WaitGroup
 
 	// 1. If voice audio recording is provided, run multimodal audio pipeline
 	if req.AudioBase64 != "" {
@@ -249,6 +254,18 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 			if mime == "" {
 				mime = "audio/m4a"
 			}
+			// ⚡ Go Concurrency: Upload audio to Cloudflare R2 concurrently with AI generation
+			r2UploadWg.Add(1)
+			go func(data []byte, contentType string) {
+				defer r2UploadWg.Done()
+				r2URL, uploadErr := reuse.UploadBytesToR2(data, contentType, "chat_audio")
+				if uploadErr != nil {
+					log.Printf("Failed to upload audio doubt to Cloudflare R2: %v", uploadErr)
+					return
+				}
+				uploadedAudioURL = r2URL
+			}(audioBytes, mime)
+
 			audioPrompt := userQuery
 			if audioPrompt == "" || strings.Contains(audioPrompt, "Attached spoken doubt") || strings.Contains(audioPrompt, "Voice Question") {
 				audioPrompt = "The student has recorded a spoken voice note asking an academic doubt. Please listen carefully to the student's speech, transcribe and address the core question, and deliver a comprehensive step-by-step masterclass explanation with LaTeX formulas and common exam traps."
@@ -265,6 +282,19 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 			if mime == "" {
 				mime = "image/jpeg"
 			}
+			// ⚡ Go Concurrency: Upload image to Cloudflare R2 concurrently with AI vision processing
+			// Zero latency penalty: R2 upload runs in parallel while Gemini/OpenAI analyzes the image!
+			r2UploadWg.Add(1)
+			go func(data []byte, contentType string) {
+				defer r2UploadWg.Done()
+				r2URL, uploadErr := reuse.UploadBytesToR2(data, contentType, "chat_images")
+				if uploadErr != nil {
+					log.Printf("Failed to upload chat image to Cloudflare R2: %v", uploadErr)
+					return
+				}
+				uploadedImageURL = r2URL
+			}(imgBytes, mime)
+
 			answerText, err = s.orchestrator.GenerateVisionWithCustomKey(ctx, req.APIKey, provider, modelName, systemPrompt, userQuery, imgBytes, mime)
 		} else {
 			answerText, err = s.generateText(ctx, req.APIKey, provider, modelName, systemPrompt, userQuery, onChunk)
@@ -278,8 +308,12 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 		onChunk(answerText)
 	}
 	if err != nil {
+		r2UploadWg.Wait()
 		return nil, fmt.Errorf("AI service error: %w", err)
 	}
+
+	// Ensure Cloudflare R2 upload completes before building response and database record
+	r2UploadWg.Wait()
 
 	// Extract structured study sections only when the answer actually contains them.
 	coreConcept := extractSection(answerText, "Foundation")
@@ -316,15 +350,16 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 	postWg.Wait()
 
 	resp := &dto.DoubtResponse{
-		Question:         req.Question,
-		SolutionMarkdown: answerText,
-		CoreConcept:      coreConcept,
-		CommonPitfalls:   commonPitfalls,
-		FollowUpChips:    followUpChips,
-		ActiveProvider:   provider,
-		ActiveModel:      modelName,
-		SpokenTranscript: spokenTranscript,
-		Blocks:           parsedBlocks,
+		Question:            req.Question,
+		SolutionMarkdown:    answerText,
+		CoreConcept:         coreConcept,
+		CommonPitfalls:      commonPitfalls,
+		FollowUpChips:       followUpChips,
+		ActiveProvider:      provider,
+		ActiveModel:         modelName,
+		SpokenTranscript:    spokenTranscript,
+		Blocks:              parsedBlocks,
+		UserMessageImageURL: uploadedImageURL,
 	}
 
 	// Asynchronously save to PostgreSQL Doubt Cache if eligible (exact standalone academic question)
@@ -382,6 +417,8 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 				ScopeID:   effectiveScopeID,
 				Role:      "user",
 				Content:   req.Question,
+				ImageURL:  uploadedImageURL,
+				AudioURL:  uploadedAudioURL,
 			})
 		}
 		assistantMessage := &model.ChatMessage{

@@ -97,10 +97,11 @@ type aiTutorStreamEvent struct {
 	ErrorCode          string   `json:"error_code,omitempty"`
 	SessionID          string   `json:"session_id,omitempty"`
 	SessionTitle       string   `json:"session_title,omitempty"`
-	AssistantMessageID string   `json:"assistant_message_id,omitempty"`
-	FollowUpChips      []string         `json:"follow_up_chips,omitempty"`
-	SpokenTranscript   string           `json:"spoken_transcript,omitempty"`
-	Blocks             []dto.AiBlockDto `json:"blocks,omitempty"`
+	AssistantMessageID  string           `json:"assistant_message_id,omitempty"`
+	UserMessageImageURL string           `json:"user_message_image_url,omitempty"`
+	FollowUpChips       []string         `json:"follow_up_chips,omitempty"`
+	SpokenTranscript    string           `json:"spoken_transcript,omitempty"`
+	Blocks              []dto.AiBlockDto `json:"blocks,omitempty"`
 }
 
 func (c *AIController) SolveDoubtStream(w http.ResponseWriter, r *http.Request) {
@@ -209,13 +210,14 @@ func (c *AIController) SolveDoubtStream(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeEvent(aiTutorStreamEvent{
-		Type:               "done",
-		SessionID:          response.SessionID,
-		SessionTitle:       response.SessionTitle,
-		AssistantMessageID: response.AssistantMessageID,
-		FollowUpChips:      response.FollowUpChips,
-		SpokenTranscript:   response.SpokenTranscript,
-		Blocks:             response.Blocks,
+		Type:                "done",
+		SessionID:           response.SessionID,
+		SessionTitle:        response.SessionTitle,
+		AssistantMessageID:  response.AssistantMessageID,
+		UserMessageImageURL: response.UserMessageImageURL,
+		FollowUpChips:       response.FollowUpChips,
+		SpokenTranscript:    response.SpokenTranscript,
+		Blocks:              response.Blocks,
 	})
 }
 

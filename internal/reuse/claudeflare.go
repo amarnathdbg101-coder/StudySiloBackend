@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net/http"
 	"net/url"
 	"path/filepath"
 	"goProjectStructure/internal/utils"
@@ -99,6 +100,82 @@ func UploadToR2(file multipart.File, header *multipart.FileHeader, folder string
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to upload file to R2: %w", err)
+	}
+
+	publicURL, err := url.JoinPath(cfg.PublicURL, fileName)
+	if err != nil {
+		return fmt.Sprintf("%s/%s", strings.TrimRight(cfg.PublicURL, "/"), fileName), nil
+	}
+
+	return publicURL, nil
+}
+
+// UploadBytesToR2 uploads raw byte data (such as decoded base64 images or voice notes) directly to Cloudflare R2
+func UploadBytesToR2(data []byte, contentType, folder string) (string, error) {
+	if len(data) == 0 {
+		return "", errors.New("cannot upload empty data")
+	}
+	if int64(len(data)) > MaxImageSizeBytes {
+		return "", ErrImageTooLarge
+	}
+
+	cfg := utils.MustLoad()
+	if strings.TrimSpace(cfg.Bucket) == "" || strings.TrimSpace(cfg.Endpoint) == "" {
+		return "", errors.New("Cloudflare R2 is not configured in environment (R2_BUCKET or R2_ENDPOINT missing)")
+	}
+
+	contentType = strings.TrimSpace(contentType)
+	if contentType == "" {
+		contentType = http.DetectContentType(data)
+	}
+	if idx := strings.Index(contentType, ";"); idx != -1 {
+		contentType = strings.TrimSpace(contentType[:idx])
+	}
+
+	var ext string
+	switch strings.ToLower(contentType) {
+	case "image/jpeg", "image/jpg":
+		ext = ".jpg"
+		contentType = "image/jpeg"
+	case "image/png":
+		ext = ".png"
+		contentType = "image/png"
+	case "image/webp":
+		ext = ".webp"
+		contentType = "image/webp"
+	case "application/pdf":
+		ext = ".pdf"
+		contentType = "application/pdf"
+	case "audio/mpeg", "audio/mp3":
+		ext = ".mp3"
+		contentType = "audio/mpeg"
+	case "audio/wav":
+		ext = ".wav"
+		contentType = "audio/wav"
+	case "audio/m4a", "audio/mp4", "audio/aac":
+		ext = ".m4a"
+		contentType = "audio/m4a"
+	default:
+		// Default to jpg for image attachments
+		ext = ".jpg"
+		contentType = "image/jpeg"
+	}
+
+	client := NewR2Client()
+	cleanFolder := strings.Trim(folder, "/")
+	if cleanFolder == "" {
+		cleanFolder = "chat_images"
+	}
+	fileName := fmt.Sprintf("%s/%d%s", cleanFolder, time.Now().UnixNano(), ext)
+
+	_, err := client.PutObject(&s3.PutObjectInput{
+		Bucket:      aws.String(cfg.Bucket),
+		Key:         aws.String(fileName),
+		Body:        bytes.NewReader(data),
+		ContentType: aws.String(contentType),
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to upload bytes to R2: %w", err)
 	}
 
 	publicURL, err := url.JoinPath(cfg.PublicURL, fileName)

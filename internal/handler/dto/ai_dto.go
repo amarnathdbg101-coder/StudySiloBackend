@@ -48,9 +48,10 @@ type DoubtResponse struct {
 	ActiveModel        string   `json:"active_model"`
 	SessionID          string   `json:"session_id,omitempty"`
 	SessionTitle       string   `json:"session_title,omitempty"`
-	AssistantMessageID string       `json:"assistant_message_id,omitempty"`
-	SpokenTranscript   string       `json:"spoken_transcript,omitempty"`
-	Blocks             []AiBlockDto `json:"blocks,omitempty"`
+	AssistantMessageID  string       `json:"assistant_message_id,omitempty"`
+	UserMessageImageURL string       `json:"user_message_image_url,omitempty"`
+	SpokenTranscript    string       `json:"spoken_transcript,omitempty"`
+	Blocks              []AiBlockDto `json:"blocks,omitempty"`
 }
 
 type AiBlockDto struct {
