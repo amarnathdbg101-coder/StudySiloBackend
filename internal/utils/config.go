@@ -14,6 +14,7 @@ type Config struct {
 	Port           string
 	Env            string
 	DBURL          string
+	RedisURL       string
 	JwtSecret      string
 	AllowedOrigins string
 	TrustedProxies []string
@@ -108,10 +109,16 @@ func MustLoad() Config {
 			allowedOrigins = "*"
 		}
 
+		redisURL := os.Getenv("REDIS_URL")
+		if redisURL == "" {
+			redisURL = "redis://localhost:6379/0"
+		}
+
 		cachedConfig = Config{
 			Port:           port,
 			Env:            env,
 			DBURL:          dbURL,
+			RedisURL:       redisURL,
 			JwtSecret:      jwtSecret,
 			AllowedOrigins: allowedOrigins,
 			TrustedProxies: parseCommaList(os.Getenv("TRUSTED_PROXIES")),

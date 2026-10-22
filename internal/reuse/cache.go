@@ -1,21 +1,32 @@
 package reuse
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
+
+const numCacheShards = 32
 
 type cacheItem struct {
 	value      any
 	expiration time.Time
 }
 
-// MemoryCache is a high-performance, thread-safe in-memory cache with TTL support.
-// Ideal for hackathons, rate limits, OTPs, or quick caching without Redis dependencies.
-type MemoryCache struct {
+type cacheShard struct {
 	mu    sync.RWMutex
 	items map[string]cacheItem
+}
+
+// MemoryCache is a high-performance 32-bucket sharded L1 in-memory cache with optional Redis L2 sync.
+type MemoryCache struct {
+	shards      [numCacheShards]*cacheShard
+	redisClient *redis.Client
 }
 
 var (
@@ -23,87 +34,184 @@ var (
 	cacheOnce    sync.Once
 )
 
+func getCacheShardIndex(key string) uint32 {
+	var hash uint32 = 2166136261
+	for i := 0; i < len(key); i++ {
+		hash ^= uint32(key[i])
+		hash *= 16777619
+	}
+	return hash % numCacheShards
+}
+
 // GetCache returns the singleton MemoryCache instance
 func GetCache() *MemoryCache {
 	cacheOnce.Do(func() {
-		defaultCache = &MemoryCache{
-			items: make(map[string]cacheItem),
+		mc := &MemoryCache{}
+		for i := 0; i < numCacheShards; i++ {
+			mc.shards[i] = &cacheShard{
+				items: make(map[string]cacheItem),
+			}
 		}
-		// Background cleaner for expired items every 2 minutes
+		defaultCache = mc
 		go defaultCache.startCleanup(2 * time.Minute)
 	})
 	return defaultCache
 }
 
-// Set stores a key-value pair with a specific Time-To-Live (TTL)
-func (c *MemoryCache) Set(key string, value any, ttl time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+// SetRedis connects Redis L2 client for distributed multi-instance caching
+func (c *MemoryCache) SetRedis(client *redis.Client) {
+	c.redisClient = client
+}
 
+// Set stores a key-value pair in sharded L1 memory and optional L2 Redis
+func (c *MemoryCache) Set(key string, value any, ttl time.Duration) {
+	shardIdx := getCacheShardIndex(key)
+	shard := c.shards[shardIdx]
+
+	shard.mu.Lock()
 	var exp time.Time
 	if ttl > 0 {
 		exp = time.Now().Add(ttl)
 	}
-
-	c.items[key] = cacheItem{
+	shard.items[key] = cacheItem{
 		value:      value,
 		expiration: exp,
 	}
+	shard.mu.Unlock()
+
+	// Sync to Redis L2 if active
+	if c.redisClient != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+
+			var strVal string
+			switch v := value.(type) {
+			case string:
+				strVal = v
+			case []byte:
+				strVal = string(v)
+			case bool:
+				strVal = fmt.Sprintf("%t", v)
+			default:
+				if b, err := json.Marshal(v); err == nil {
+					strVal = string(b)
+				} else {
+					strVal = fmt.Sprintf("%v", v)
+				}
+			}
+			_ = c.redisClient.Set(ctx, key, strVal, ttl).Err()
+		}()
+	}
 }
 
-// Get retrieves a value from the cache. Returns (nil, false) if missing or expired.
+// Get retrieves a value from L1 sharded cache first, falling back to L2 Redis if missing
 func (c *MemoryCache) Get(key string) (any, bool) {
-	c.mu.RLock()
-	item, found := c.items[key]
-	c.mu.RUnlock()
+	shardIdx := getCacheShardIndex(key)
+	shard := c.shards[shardIdx]
 
-	if !found {
-		return nil, false
+	shard.mu.RLock()
+	item, found := shard.items[key]
+	shard.mu.RUnlock()
+
+	if found {
+		if !item.expiration.IsZero() && time.Now().After(item.expiration) {
+			c.Delete(key)
+			return nil, false
+		}
+		return item.value, true
 	}
 
-	if !item.expiration.IsZero() && time.Now().After(item.expiration) {
-		c.Delete(key)
-		return nil, false
-	}
+	// L1 miss: try L2 Redis if connected
+	if c.redisClient != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
 
-	return item.value, true
-}
-
-// Delete removes an item from the cache
-func (c *MemoryCache) Delete(key string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	delete(c.items, key)
-}
-
-// DeleteByPrefix removes all items whose keys start with the given prefix
-func (c *MemoryCache) DeleteByPrefix(prefix string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	for k := range c.items {
-		if strings.HasPrefix(k, prefix) {
-			delete(c.items, k)
+		val, err := c.redisClient.Get(ctx, key).Result()
+		if err == nil && val != "" {
+			// Populate L1 cache for subsequent requests
+			c.Set(key, val, 1*time.Minute)
+			return val, true
 		}
 	}
+
+	return nil, false
 }
 
-// Flush removes all items from the cache
+// Delete removes an item from L1 sharded cache and L2 Redis
+func (c *MemoryCache) Delete(key string) {
+	shardIdx := getCacheShardIndex(key)
+	shard := c.shards[shardIdx]
+
+	shard.mu.Lock()
+	delete(shard.items, key)
+	shard.mu.Unlock()
+
+	if c.redisClient != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			defer cancel()
+			_ = c.redisClient.Del(ctx, key).Err()
+		}()
+	}
+}
+
+// DeleteByPrefix removes all items matching prefix across all 32 shards
+func (c *MemoryCache) DeleteByPrefix(prefix string) {
+	for i := 0; i < numCacheShards; i++ {
+		shard := c.shards[i]
+		shard.mu.Lock()
+		for k := range shard.items {
+			if strings.HasPrefix(k, prefix) {
+				delete(shard.items, k)
+			}
+		}
+		shard.mu.Unlock()
+	}
+
+	if c.redisClient != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			iter := c.redisClient.Scan(ctx, 0, prefix+"*", 0).Iterator()
+			for iter.Next(ctx) {
+				_ = c.redisClient.Del(ctx, iter.Val()).Err()
+			}
+		}()
+	}
+}
+
+// Flush removes all items from all shards
 func (c *MemoryCache) Flush() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.items = make(map[string]cacheItem)
+	for i := 0; i < numCacheShards; i++ {
+		shard := c.shards[i]
+		shard.mu.Lock()
+		shard.items = make(map[string]cacheItem)
+		shard.mu.Unlock()
+	}
+
+	if c.redisClient != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			_ = c.redisClient.FlushDB(ctx).Err()
+		}()
+	}
 }
 
 func (c *MemoryCache) startCleanup(interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	for range ticker.C {
-		c.mu.Lock()
 		now := time.Now()
-		for k, v := range c.items {
-			if !v.expiration.IsZero() && now.After(v.expiration) {
-				delete(c.items, k)
+		for i := 0; i < numCacheShards; i++ {
+			shard := c.shards[i]
+			shard.mu.Lock()
+			for k, v := range shard.items {
+				if !v.expiration.IsZero() && now.After(v.expiration) {
+					delete(shard.items, k)
+				}
 			}
+			shard.mu.Unlock()
 		}
-		c.mu.Unlock()
 	}
 }

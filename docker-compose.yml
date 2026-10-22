@@ -46,6 +46,8 @@ services:
       - JWT_SECRET=hackathon-super-secret-key-change-in-production
       - JWT_EXPIRATION_HOURS=72
       - ALLOWED_ORIGINS=*
+      - GOMEMLIMIT=1800MiB
+      - GOGC=100
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - GEMINI_API_KEYS=${GEMINI_API_KEYS:-}
     depends_on:

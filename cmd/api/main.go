@@ -5,6 +5,7 @@ import (
 	"goProjectStructure/internal/handler/routes"
 	"goProjectStructure/internal/middleware"
 	"goProjectStructure/internal/migration"
+	"goProjectStructure/internal/reuse"
 	"goProjectStructure/internal/servers"
 	"goProjectStructure/internal/utils"
 	"goProjectStructure/internal/worker"
@@ -18,6 +19,13 @@ func main() {
 	defer logger.Sync()
 
 	cfg := utils.MustLoadAPI()
+
+	// Connect to Redis L2 Distributed Cache Pool
+	redisClient := utils.ConnectRedis(cfg.RedisURL)
+	if redisClient != nil {
+		defer redisClient.Close()
+		reuse.GetCache().SetRedis(redisClient)
+	}
 
 	// Connect to PostgreSQL database pool
 	db, err := utils.ConnectDB(cfg.DBURL)
