@@ -65,7 +65,7 @@ func getGeminiCandidates(primary string) []string {
 	// 1. Primary requested model first
 	add(clean)
 
-	// 2. Cascade based on model family with available live models
+	// 2. Fallback candidates cascade
 	if strings.Contains(clean, "pro") {
 		add("gemini-3.8-flash")
 		add("gemini-3.7-flash")

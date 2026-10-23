@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"goProjectStructure/internal/handler/dto"
+	"goProjectStructure/internal/handler/model"
 	"goProjectStructure/internal/handler/repository"
 	"goProjectStructure/internal/handler/services"
 	"goProjectStructure/internal/middleware"
@@ -271,7 +272,7 @@ func truncateError(s string, max int) string {
 func (c *AIController) GetChatHistory(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.GetUserFromContext(r.Context())
 	if claims == nil {
-		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
+		reuse.Success(w, "guest chat history", []*model.ChatMessage{})
 		return
 	}
 
@@ -291,7 +292,7 @@ func (c *AIController) GetChatHistory(w http.ResponseWriter, r *http.Request) {
 func (c *AIController) ListChatSessions(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.GetUserFromContext(r.Context())
 	if claims == nil {
-		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
+		reuse.Success(w, "guest chat sessions", []*model.ChatSession{})
 		return
 	}
 
