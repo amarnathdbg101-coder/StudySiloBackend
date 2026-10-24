@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"goProjectStructure/internal/handler/model"
@@ -300,10 +301,12 @@ func (r *cognitiveRepo) PromoteTopic(ctx context.Context, userID, topic string) 
 		return nil, err
 	}
 
+	target := strings.ToLower(strings.TrimSpace(topic))
+
 	// Remove from weak
 	newWeak := make([]string, 0, len(current.WeakTopics))
 	for _, w := range current.WeakTopics {
-		if w != topic {
+		if strings.ToLower(strings.TrimSpace(w)) != target {
 			newWeak = append(newWeak, w)
 		}
 	}
@@ -312,19 +315,19 @@ func (r *cognitiveRepo) PromoteTopic(ctx context.Context, userID, topic string) 
 	// Add to strong
 	alreadyInStrong := false
 	for _, s := range current.StrongTopics {
-		if s == topic {
+		if strings.ToLower(strings.TrimSpace(s)) == target {
 			alreadyInStrong = true
 			break
 		}
 	}
 	if !alreadyInStrong {
-		current.StrongTopics = append(current.StrongTopics, topic)
+		current.StrongTopics = append(current.StrongTopics, strings.TrimSpace(topic))
 	}
 
 	if current.TopicMastery == nil {
 		current.TopicMastery = make(map[string]int)
 	}
-	current.TopicMastery[topic] = 90
+	current.TopicMastery[strings.TrimSpace(topic)] = 90
 
 	// Recompute readiness
 	totalTopics := len(current.StrongTopics) + len(current.WeakTopics)
@@ -348,10 +351,12 @@ func (r *cognitiveRepo) DemoteTopic(ctx context.Context, userID, topic string) (
 		return nil, err
 	}
 
+	target := strings.ToLower(strings.TrimSpace(topic))
+
 	// Remove from strong
 	newStrong := make([]string, 0, len(current.StrongTopics))
 	for _, s := range current.StrongTopics {
-		if s != topic {
+		if strings.ToLower(strings.TrimSpace(s)) != target {
 			newStrong = append(newStrong, s)
 		}
 	}
@@ -360,19 +365,19 @@ func (r *cognitiveRepo) DemoteTopic(ctx context.Context, userID, topic string) (
 	// Add to weak
 	alreadyInWeak := false
 	for _, w := range current.WeakTopics {
-		if w == topic {
+		if strings.ToLower(strings.TrimSpace(w)) == target {
 			alreadyInWeak = true
 			break
 		}
 	}
 	if !alreadyInWeak {
-		current.WeakTopics = append(current.WeakTopics, topic)
+		current.WeakTopics = append(current.WeakTopics, strings.TrimSpace(topic))
 	}
 
 	if current.TopicMastery == nil {
 		current.TopicMastery = make(map[string]int)
 	}
-	current.TopicMastery[topic] = 40
+	current.TopicMastery[strings.TrimSpace(topic)] = 40
 
 	if err := r.Upsert(ctx, current); err != nil {
 		return nil, err
@@ -386,9 +391,11 @@ func (r *cognitiveRepo) DeleteTopic(ctx context.Context, userID, topic string) (
 		return nil, err
 	}
 
+	target := strings.ToLower(strings.TrimSpace(topic))
+
 	newWeak := make([]string, 0, len(current.WeakTopics))
 	for _, w := range current.WeakTopics {
-		if w != topic {
+		if strings.ToLower(strings.TrimSpace(w)) != target {
 			newWeak = append(newWeak, w)
 		}
 	}
@@ -396,14 +403,18 @@ func (r *cognitiveRepo) DeleteTopic(ctx context.Context, userID, topic string) (
 
 	newStrong := make([]string, 0, len(current.StrongTopics))
 	for _, s := range current.StrongTopics {
-		if s != topic {
+		if strings.ToLower(strings.TrimSpace(s)) != target {
 			newStrong = append(newStrong, s)
 		}
 	}
 	current.StrongTopics = newStrong
 
 	if current.TopicMastery != nil {
-		delete(current.TopicMastery, topic)
+		for k := range current.TopicMastery {
+			if strings.ToLower(strings.TrimSpace(k)) == target {
+				delete(current.TopicMastery, k)
+			}
+		}
 	}
 
 	if err := r.Upsert(ctx, current); err != nil {

@@ -195,12 +195,12 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 		r.Route("/profile/cognitive", func(r chi.Router) {
 			r.With(middleware.OptionalJWTAuth(cfg.JwtSecret)).Get("/", cognitiveCtrl.GetProfile)
 			r.With(middleware.OptionalJWTAuth(cfg.JwtSecret)).Get("/smart-context", cognitiveCtrl.GetSmartContext)
-			r.With(middleware.JWTAuth(cfg.JwtSecret)).Put("/", cognitiveCtrl.UpdateGoals)
+			r.With(middleware.OptionalJWTAuth(cfg.JwtSecret)).Put("/", cognitiveCtrl.UpdateGoals)
 			r.With(middleware.OptionalJWTAuth(cfg.JwtSecret)).Post("/diagnose", cognitiveCtrl.Diagnose)
 
-			// Authenticated Topic Mastery & Action Drills
+			// Topic Mastery & Action Drills (Supports both Guest and Authenticated Learners)
 			r.Group(func(r chi.Router) {
-				r.Use(middleware.JWTAuth(cfg.JwtSecret))
+				r.Use(middleware.OptionalJWTAuth(cfg.JwtSecret))
 				r.Post("/topics/promote", cognitiveCtrl.PromoteTopic)
 				r.Post("/topics/demote", cognitiveCtrl.DemoteTopic)
 				r.Delete("/topics", cognitiveCtrl.DeleteTopic)

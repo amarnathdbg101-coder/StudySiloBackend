@@ -62,9 +62,9 @@ func (c *CognitiveController) GetSmartContext(w http.ResponseWriter, r *http.Req
 // UpdateGoals updates target exam, academic level, and custom topics
 func (c *CognitiveController) UpdateGoals(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.GetUserFromContext(r.Context())
-	if claims == nil {
-		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
-		return
+	userID := "guest-user"
+	if claims != nil && claims.UserID != "" {
+		userID = claims.UserID
 	}
 
 	var req dto.UpdateCognitiveGoalRequest
@@ -78,7 +78,7 @@ func (c *CognitiveController) UpdateGoals(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	profile, err := c.cognitiveService.UpdateGoals(r.Context(), claims.UserID, req)
+	profile, err := c.cognitiveService.UpdateGoals(r.Context(), userID, req)
 	if err != nil {
 		reuse.Error(w, http.StatusBadRequest, err.Error())
 		return
@@ -107,9 +107,9 @@ func (c *CognitiveController) Diagnose(w http.ResponseWriter, r *http.Request) {
 // PromoteTopic moves a topic from Needs Focus to Mastered
 func (c *CognitiveController) PromoteTopic(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.GetUserFromContext(r.Context())
-	if claims == nil {
-		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
-		return
+	userID := "guest-user"
+	if claims != nil && claims.UserID != "" {
+		userID = claims.UserID
 	}
 
 	var req dto.TopicActionRequest
@@ -123,7 +123,7 @@ func (c *CognitiveController) PromoteTopic(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	profile, err := c.cognitiveService.PromoteTopic(r.Context(), claims.UserID, req.Topic)
+	profile, err := c.cognitiveService.PromoteTopic(r.Context(), userID, req.Topic)
 	if err != nil {
 		reuse.Error(w, http.StatusBadRequest, err.Error())
 		return
@@ -135,9 +135,9 @@ func (c *CognitiveController) PromoteTopic(w http.ResponseWriter, r *http.Reques
 // DemoteTopic moves a topic from Mastered to Needs Focus
 func (c *CognitiveController) DemoteTopic(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.GetUserFromContext(r.Context())
-	if claims == nil {
-		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
-		return
+	userID := "guest-user"
+	if claims != nil && claims.UserID != "" {
+		userID = claims.UserID
 	}
 
 	var req dto.TopicActionRequest
@@ -151,7 +151,7 @@ func (c *CognitiveController) DemoteTopic(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	profile, err := c.cognitiveService.DemoteTopic(r.Context(), claims.UserID, req.Topic)
+	profile, err := c.cognitiveService.DemoteTopic(r.Context(), userID, req.Topic)
 	if err != nil {
 		reuse.Error(w, http.StatusBadRequest, err.Error())
 		return
@@ -163,9 +163,9 @@ func (c *CognitiveController) DemoteTopic(w http.ResponseWriter, r *http.Request
 // DeleteTopic removes a topic from the student's mastery profile
 func (c *CognitiveController) DeleteTopic(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.GetUserFromContext(r.Context())
-	if claims == nil {
-		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
-		return
+	userID := "guest-user"
+	if claims != nil && claims.UserID != "" {
+		userID = claims.UserID
 	}
 
 	var req dto.TopicActionRequest
@@ -179,7 +179,7 @@ func (c *CognitiveController) DeleteTopic(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	profile, err := c.cognitiveService.DeleteTopic(r.Context(), claims.UserID, req.Topic)
+	profile, err := c.cognitiveService.DeleteTopic(r.Context(), userID, req.Topic)
 	if err != nil {
 		reuse.Error(w, http.StatusBadRequest, err.Error())
 		return
@@ -191,9 +191,9 @@ func (c *CognitiveController) DeleteTopic(w http.ResponseWriter, r *http.Request
 // RecordActivity logs a custom study/quiz/doubt activity
 func (c *CognitiveController) RecordActivity(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.GetUserFromContext(r.Context())
-	if claims == nil {
-		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
-		return
+	userID := "guest-user"
+	if claims != nil && claims.UserID != "" {
+		userID = claims.UserID
 	}
 
 	var req dto.RecordActivityRequest
@@ -207,7 +207,7 @@ func (c *CognitiveController) RecordActivity(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	profile, err := c.cognitiveService.RecordActivity(r.Context(), claims.UserID, req)
+	profile, err := c.cognitiveService.RecordActivity(r.Context(), userID, req)
 	if err != nil {
 		reuse.Error(w, http.StatusBadRequest, err.Error())
 		return

@@ -442,7 +442,10 @@ func (s *quizService) SubmitQuiz(ctx context.Context, id, userID string, req dto
 }
 
 func (s *quizService) GetCognitiveProfile(ctx context.Context, userID string) (*model.CognitiveProfile, error) {
-	if userID != "" && userID != "guest-user" && s.cognitiveRepo != nil {
+	if userID == "" {
+		userID = "guest-user"
+	}
+	if s.cognitiveRepo != nil {
 		p, err := s.cognitiveRepo.GetByUserID(ctx, userID)
 		if err == nil && p != nil {
 			return p, nil
@@ -463,7 +466,10 @@ func (s *quizService) GetCognitiveProfile(ctx context.Context, userID string) (*
 }
 
 func (s *quizService) UpdateCognitiveProfile(ctx context.Context, userID string, req dto.UpdateCognitiveProfileRequest) (*model.CognitiveProfile, error) {
-	if userID == "" || userID == "guest-user" || s.cognitiveRepo == nil {
+	if userID == "" {
+		userID = "guest-user"
+	}
+	if s.cognitiveRepo == nil {
 		profile := &model.CognitiveProfile{
 			UserID:        userID,
 			TargetExam:    "Competitive / University Exam",
@@ -492,7 +498,14 @@ func (s *quizService) UpdateCognitiveProfile(ctx context.Context, userID string,
 
 	profile, err := s.cognitiveRepo.GetByUserID(ctx, userID)
 	if err != nil {
-		return nil, err
+		profile = &model.CognitiveProfile{
+			UserID:        userID,
+			TargetExam:    "Competitive / University Exam",
+			AcademicLevel: "Undergraduate",
+			WeakTopics:    []string{},
+			StrongTopics:  []string{},
+			ExamTraps:     []string{},
+		}
 	}
 
 	if req.TargetExam != nil {

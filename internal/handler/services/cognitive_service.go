@@ -53,7 +53,10 @@ func NewCognitiveService(
 }
 
 func (s *cognitiveService) GetProfile(ctx context.Context, userID string) (*dto.CognitiveProfileResponse, error) {
-	if userID == "" || userID == "guest-user" || s.cognitiveRepo == nil {
+	if userID == "" {
+		userID = "guest-user"
+	}
+	if s.cognitiveRepo == nil {
 		return toProfileResponse(nil), nil
 	}
 
@@ -133,13 +136,16 @@ func (s *cognitiveService) getDynamicCurricula(ctx context.Context) []ai.ExamCur
 
 // invalidateSmartContext purges cached smart context for the user upon profile/learning mutations
 func (s *cognitiveService) invalidateSmartContext(userID string) {
-	if userID != "" && userID != "guest-user" {
+	if userID != "" {
 		reuse.GetCache().DeleteByPrefix("smart_ctx:" + userID + ":")
 	}
 }
 
 func (s *cognitiveService) UpdateGoals(ctx context.Context, userID string, req dto.UpdateCognitiveGoalRequest) (*dto.CognitiveProfileResponse, error) {
-	if userID == "" || userID == "guest-user" || s.cognitiveRepo == nil {
+	if userID == "" {
+		userID = "guest-user"
+	}
+	if s.cognitiveRepo == nil {
 		return toProfileResponse(nil), nil
 	}
 
@@ -185,7 +191,10 @@ func (s *cognitiveService) PromoteTopic(ctx context.Context, userID, topic strin
 		return nil, fmt.Errorf("topic name cannot be empty")
 	}
 
-	if userID == "" || userID == "guest-user" || s.cognitiveRepo == nil {
+	if userID == "" {
+		userID = "guest-user"
+	}
+	if s.cognitiveRepo == nil {
 		return toProfileResponse(nil), nil
 	}
 
@@ -203,7 +212,10 @@ func (s *cognitiveService) DemoteTopic(ctx context.Context, userID, topic string
 		return nil, fmt.Errorf("topic name cannot be empty")
 	}
 
-	if userID == "" || userID == "guest-user" || s.cognitiveRepo == nil {
+	if userID == "" {
+		userID = "guest-user"
+	}
+	if s.cognitiveRepo == nil {
 		return toProfileResponse(nil), nil
 	}
 
@@ -221,7 +233,10 @@ func (s *cognitiveService) DeleteTopic(ctx context.Context, userID, topic string
 		return nil, fmt.Errorf("topic name cannot be empty")
 	}
 
-	if userID == "" || userID == "guest-user" || s.cognitiveRepo == nil {
+	if userID == "" {
+		userID = "guest-user"
+	}
+	if s.cognitiveRepo == nil {
 		return toProfileResponse(nil), nil
 	}
 
@@ -234,7 +249,10 @@ func (s *cognitiveService) DeleteTopic(ctx context.Context, userID, topic string
 }
 
 func (s *cognitiveService) RecordActivity(ctx context.Context, userID string, req dto.RecordActivityRequest) (*dto.CognitiveProfileResponse, error) {
-	if userID == "" || userID == "guest-user" || s.cognitiveRepo == nil {
+	if userID == "" {
+		userID = "guest-user"
+	}
+	if s.cognitiveRepo == nil {
 		return toProfileResponse(nil), nil
 	}
 
