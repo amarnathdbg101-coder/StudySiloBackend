@@ -170,6 +170,9 @@ func (s *cognitiveService) UpdateGoals(ctx context.Context, userID string, req d
 	if req.ExamTrapsToWatch != nil {
 		profile.ExamTraps = *req.ExamTrapsToWatch
 	}
+	if req.WeakTopics != nil && len(*req.WeakTopics) == 0 && req.StrongTopics != nil && len(*req.StrongTopics) == 0 {
+		profile.TopicMastery = map[string]int{}
+	}
 
 	if err := s.cognitiveRepo.Upsert(ctx, profile); err != nil {
 		return nil, fmt.Errorf("failed to update cognitive profile: %w", err)
@@ -294,25 +297,22 @@ func (s *cognitiveService) DiagnoseProfile(ctx context.Context, userID string) (
 			UserID:            userID,
 			TargetExam:        "Competitive / University Exam",
 			AcademicLevel:     "Undergraduate",
-			WeakTopics:        []string{"Data Structures", "Dynamic Programming"},
-			StrongTopics:      []string{"Object-Oriented Programming"},
-			ExamTraps:         []string{"Off-by-one boundary cases", "Time complexity underestimation"},
+			WeakTopics:        []string{},
+			StrongTopics:      []string{},
+			ExamTraps:         []string{},
 			StudyStreakDays:   1,
-			TotalStudyMinutes: 30,
-			TotalQuizzesTaken: 2,
-			AverageQuizScore:  65.0,
-			TopicMastery: map[string]int{
-				"Data Structures":               45,
-				"Dynamic Programming":           35,
-				"Object-Oriented Programming": 85,
-			},
-			ReadinessScore: 62,
+			TotalStudyMinutes: 0,
+			TotalQuizzesTaken: 0,
+			AverageQuizScore:  0.0,
+			TopicMastery:      map[string]int{},
+			ReadinessScore:    50,
 		}
 	}
 
 	systemPrompt := `You are an elite AI Cognitive Tutor & Exam Strategist.
 Analyze the student's study profile, quiz metrics, doubts history, and topic mastery.
 Diagnose their conceptual gaps and exam traps, calculate a realistic Readiness Score (0-100), and recommend immediate actionable study drills.
+CRITICAL DIRECTIVE: ONLY extract and identify topics from the student's actual doubt history, quiz results, or current topics list. If the student has 0 doubts, 0 quizzes, and no topics listed, you MUST return empty arrays for "weak_topics": [], "strong_topics": [], and "exam_traps": []. Do NOT invent or hallucinate default Computer Science or arbitrary topics.
 
 Respond strictly in valid JSON format matching this schema with NO markdown code fences or backticks:
 {
@@ -425,19 +425,25 @@ func (s *cognitiveService) buildDeterministicDiagnosis(p *model.CognitiveProfile
 	}
 
 	actions := []string{
-		"Solve a 5-question targeted adaptive quiz on your weakest topic",
-		"Review core concepts using an AI-generated mind map",
-		"Resolve pending doubt queries with the AI Tutor",
+		"Solve an adaptive quiz to calibrate your conceptual mastery",
+		"Ask doubt queries to the AI Tutor to build deep clarity",
+		"Explore interactive mind maps for active conceptual recall",
 	}
 
-	summary := fmt.Sprintf("You have achieved an overall exam readiness of %d%% for %s. Your foundation in %s is solid, but targeted practice in %s is needed before your target exam.",
-		readiness,
-		p.TargetExam,
-		strings.Join(p.StrongTopics, ", "),
-		strings.Join(p.WeakTopics, ", "),
-	)
-	if len(p.WeakTopics) == 0 {
-		summary = fmt.Sprintf("Great momentum! Your readiness score is %d%% across all subjects. Take an advanced adaptive quiz to discover higher-order traps.", readiness)
+	var summary string
+	if len(p.WeakTopics) > 0 && len(p.StrongTopics) > 0 {
+		summary = fmt.Sprintf("You have achieved an overall exam readiness of %d%% for %s. Your foundation in %s is solid, but targeted practice in %s is recommended before your exam.",
+			readiness,
+			p.TargetExam,
+			strings.Join(p.StrongTopics, ", "),
+			strings.Join(p.WeakTopics, ", "),
+		)
+	} else if len(p.WeakTopics) > 0 {
+		summary = fmt.Sprintf("Your current focus is on %s. Practice targeted adaptive quizzes to reinforce these core areas.", strings.Join(p.WeakTopics, ", "))
+	} else if len(p.StrongTopics) > 0 {
+		summary = fmt.Sprintf("Strong conceptual grasp in %s! Keep up the momentum with regular revision quizzes.", strings.Join(p.StrongTopics, ", "))
+	} else {
+		summary = fmt.Sprintf("Welcome to your Cognitive Profile for %s. Practice topics and ask doubts to let AI dynamically track your strengths and focus areas.", p.TargetExam)
 	}
 
 	return dto.CognitiveDiagnosisResponse{
@@ -467,6 +473,27 @@ func cleanCognitiveJSON(raw string) string {
 	return strings.TrimSpace(s)
 }
 
+func sanitizeLegacyMock(topics []string) []string {
+	if len(topics) == 0 {
+		return []string{}
+	}
+	legacyMap := map[string]bool{
+		"data structures":             true,
+		"dynamic programming":         true,
+		"object-oriented programming": true,
+		"core theory & mechanics":     true,
+		"formula derivations":         true,
+		"examiner traps & pyqs":       true,
+	}
+	clean := make([]string, 0, len(topics))
+	for _, t := range topics {
+		if !legacyMap[strings.ToLower(strings.TrimSpace(t))] {
+			clean = append(clean, t)
+		}
+	}
+	return clean
+}
+
 func toProfileResponse(p *model.CognitiveProfile) *dto.CognitiveProfileResponse {
 	if p == nil {
 		return &dto.CognitiveProfileResponse{
@@ -479,10 +506,10 @@ func toProfileResponse(p *model.CognitiveProfile) *dto.CognitiveProfileResponse 
 			TotalStudyMinutes:  0,
 			TotalQuizzesTaken:  0,
 			AverageQuizScore:   0.0,
-			AISummary:          "Welcome! Start exploring topics, asking AI doubts, or taking quizzes to unlock your AI Cognitive Profile.",
+			AISummary:          "Welcome! Start exploring topics, asking AI doubts, or taking quizzes to unlock your personalized Cognitive Profile.",
 			TopicMastery:       map[string]int{},
 			ReadinessScore:     50,
-			RecommendedActions: []string{"Ask your first AI doubt", "Generate a diagnostic quiz", "Create a visual mind map"},
+			RecommendedActions: []string{"Ask your first AI doubt", "Generate an adaptive quiz", "Explore interactive mind maps"},
 			TotalDoubtsAsked:   0,
 			LastActiveAt:       time.Now(),
 			UpdatedAt:          time.Now(),
@@ -493,18 +520,7 @@ func toProfileResponse(p *model.CognitiveProfile) *dto.CognitiveProfileResponse 
 	if mastery == nil {
 		mastery = make(map[string]int)
 	}
-	actions := p.RecommendedActions
-	if len(actions) == 0 {
-		actions = []string{"Practice weak topics", "Take an adaptive quiz"}
-	}
-	summary := p.AISummary
-	if summary == "" {
-		summary = "Cognitive profile active. Your learning path updates automatically as you study."
-	}
-	readiness := p.ReadinessScore
-	if readiness == 0 {
-		readiness = 60
-	}
+
 	weak := p.WeakTopics
 	if weak == nil {
 		weak = []string{}
@@ -516,6 +532,31 @@ func toProfileResponse(p *model.CognitiveProfile) *dto.CognitiveProfileResponse 
 	traps := p.ExamTraps
 	if traps == nil {
 		traps = []string{}
+	}
+
+	// Sanitize legacy mock topics if student has 0 doubts and 0 quizzes
+	if p.TotalQuizzesTaken == 0 && p.TotalDoubtsAsked == 0 {
+		weak = sanitizeLegacyMock(weak)
+		strong = sanitizeLegacyMock(strong)
+		delete(mastery, "Data Structures")
+		delete(mastery, "Dynamic Programming")
+		delete(mastery, "Object-Oriented Programming")
+		delete(mastery, "Core Theory & Mechanics")
+		delete(mastery, "Formula Derivations")
+		delete(mastery, "Examiner Traps & PYQs")
+	}
+
+	actions := p.RecommendedActions
+	if len(actions) == 0 {
+		actions = []string{"Practice weak topics", "Take an adaptive quiz"}
+	}
+	summary := p.AISummary
+	if summary == "" {
+		summary = "Cognitive profile active. Your learning path updates automatically as you study."
+	}
+	readiness := p.ReadinessScore
+	if readiness == 0 {
+		readiness = 50
 	}
 
 	return &dto.CognitiveProfileResponse{
