@@ -16,7 +16,7 @@ import (
 // NewServer configures a high-performance HTTP server with production timeouts to prevent Slowloris attacks.
 func NewServer(port string, handler http.Handler) *http.Server {
 	return &http.Server{
-		Addr:              fmt.Sprintf(":%s", port),
+		Addr:              fmt.Sprintf("0.0.0.0:%s", port),
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       60 * time.Second,
