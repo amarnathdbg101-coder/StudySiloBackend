@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"goProjectStructure/internal/handler/dto"
 	"goProjectStructure/internal/handler/repository"
@@ -74,32 +75,46 @@ Analyze the provided student study notes and output a single JSON object strictl
 
 	var analysis dto.NotesAnalysisResponse
 	err := s.orchestrator.GenerateStructured(ctx, systemPrompt, userPrompt, &analysis)
-
-	// If AI unmarshal produced empty summary (e.g. offline dev mock), provide fallback data
-	if analysis.Summary == "" {
-		analysis.Title = title
-		analysis.Summary = fmt.Sprintf("### Summary of %s\n\nKey principles extracted from study material. All core concepts reviewed.", title)
-		analysis.KeyPoints = []string{
-			"Fundamental definitions and core relationships.",
-			"Application of formulas under boundary constraints.",
-			"Critical exam considerations and traps.",
+	if err != nil || analysis.Summary == "" {
+		// If AI is offline or produced empty summary, generate dynamic summary directly from student's notes content
+		summaryContent := content
+		if len(summaryContent) > 300 {
+			summaryContent = summaryContent[:300] + "..."
 		}
+
+		lines := strings.Split(content, "\n")
+		var keyPoints []string
+		for _, l := range lines {
+			trimmed := strings.TrimSpace(l)
+			if trimmed != "" && len(trimmed) > 10 {
+				keyPoints = append(keyPoints, trimmed)
+				if len(keyPoints) >= 4 {
+					break
+				}
+			}
+		}
+		if len(keyPoints) == 0 {
+			keyPoints = []string{fmt.Sprintf("Key review points from %s", title)}
+		}
+
+		analysis.Title = title
+		analysis.Summary = fmt.Sprintf("### %s Summary\n\n%s", title, summaryContent)
+		analysis.KeyPoints = keyPoints
 		analysis.Flashcards = []dto.FlashcardItem{
 			{
-				Front:      "What is the primary governing principle of this topic?",
-				Back:       "State the fundamental relationship and associated boundary criteria.",
+				Front:      fmt.Sprintf("What is the central concept discussed in %s?", title),
+				Back:       summaryContent,
 				Difficulty: "medium",
 				Topic:      title,
 			},
-			{
-				Front:      "Which common pitfall must be avoided in calculations?",
-				Back:       "Watch out for consistent unit dimensions and sign conventions.",
-				Difficulty: "hard",
-				Topic:      title,
-			},
 		}
-		analysis.CheatSheet = fmt.Sprintf("### ⚡ %s Quick Formula Sheet\n\n- Fundamental Relation: $y = f(x)$\n- Constant Values: Standard SI Units", title)
+		analysis.CheatSheet = fmt.Sprintf("### ⚡ %s Quick Review Sheet\n\n%s", title, summaryContent)
+		return &analysis, nil
 	}
 
-	return &analysis, err
+	if analysis.Title == "" {
+		analysis.Title = title
+	}
+
+	return &analysis, nil
 }
