@@ -52,6 +52,8 @@ func (s *pdfExportService) ExportStudyPack(ctx context.Context, userID string, r
 			}
 		}
 	}
+	req.Title = title
+	req.Content = content
 
 	var quizQuestions []*model.QuizQuestion
 	if req.QuizID != "" && s.quizRepo != nil {
@@ -62,22 +64,48 @@ func (s *pdfExportService) ExportStudyPack(ctx context.Context, userID string, r
 	}
 
 	// 1. Try modern headless Chrome (chromedp) for rich vector typography & KaTeX math formulas
-	pdfBytes, err := s.exportWithChromedp(ctx, title, content, quizQuestions)
+	pdfBytes, err := s.exportWithChromedp(ctx, req, quizQuestions)
 	if err == nil && len(pdfBytes) > 100 {
 		return pdfBytes, nil
 	}
 
 	// 2. Graceful fallback to gofpdf if Chrome/Chromium binary is not installed in the environment
-	return s.exportWithGofpdf(title, content, quizQuestions)
+	return s.exportWithGofpdf(req, quizQuestions)
 }
-func (s *pdfExportService) exportWithChromedp(ctx context.Context, title, content string, questions []*model.QuizQuestion) ([]byte, error) {
-	cCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+
+// chromeSemaphore limits concurrent headless Chrome tasks to 1.
+// On a 1 CPU / 1GB RAM budget VPS, running multiple headless Chrome processes simultaneously
+// will exhaust RAM and trigger Linux Kernel Out-Of-Memory (OOM) killer.
+var chromeSemaphore = make(chan struct{}, 1)
+
+func acquireChromeLock(ctx context.Context) (func(), error) {
+	select {
+	case chromeSemaphore <- struct{}{}:
+		return func() { <-chromeSemaphore }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (s *pdfExportService) exportWithChromedp(ctx context.Context, req dto.ExportPDFRequest, questions []*model.QuizQuestion) ([]byte, error) {
+	cCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
+
+	release, err := acquireChromeLock(cCtx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.DisableGPU,
 		chromedp.NoSandbox,
 		chromedp.Headless,
+		chromedp.Flag("disable-dev-shm-usage", true),          // Prevents /dev/shm shared memory crashes on Linux VPS
+		chromedp.Flag("no-zygote", true),                      // Saves 30-50MB RAM by avoiding zygote process
+		chromedp.Flag("mute-audio", true),                     // Disable audio subsystem
+		chromedp.Flag("disable-extensions", true),             // Disable extensions
+		chromedp.Flag("js-flags", "--max-old-space-size=128"), // Caps V8 heap to 128MB
 	)
 
 	allocCtx, allocCancel := chromedp.NewExecAllocator(cCtx, opts...)
@@ -86,19 +114,22 @@ func (s *pdfExportService) exportWithChromedp(ctx context.Context, title, conten
 	taskCtx, taskCancel := chromedp.NewContext(allocCtx)
 	defer taskCancel()
 
-	htmlContent := buildStudyPackHTML(title, content, questions)
+	htmlContent := buildStudyPackHTML(req, questions)
 
-	err := chromedp.Do(taskCtx,
+	err = chromedp.Do(taskCtx,
 		chromedp.Navigate("data:text/html;charset=utf-8,"+url.PathEscape(htmlContent)),
 	)
 	if err != nil {
 		return nil, err
 	}
 
+	// ⚡ Allow KaTeX auto-render engine to render math formulas into crisp vector SVG before printing
+	_ = chromedp.Do(taskCtx, chromedp.Sleep(450*time.Millisecond))
+
 	buf, err := chromedp.Run(taskCtx,
 		chromedp.PrintToPDF(
 			chromedp.PDFPaper(chromedp.PaperA4),
-			chromedp.PDFMargin(0.4),
+			chromedp.PDFMargin(0.3),
 			chromedp.PDFPrintBackground(),
 		),
 	)
@@ -108,49 +139,284 @@ func (s *pdfExportService) exportWithChromedp(ctx context.Context, title, conten
 	return buf, nil
 }
 
-func buildStudyPackHTML(title, content string, questions []*model.QuizQuestion) string {
-	var bodyHtml strings.Builder
+func renderInline(text string) string {
+	escaped := html.EscapeString(text)
 
-	lines := strings.Split(content, "\n")
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			bodyHtml.WriteString("<br>")
-			continue
+	// Bold: **text** -> <strong>text</strong>
+	for {
+		start := strings.Index(escaped, "**")
+		if start == -1 {
+			break
 		}
-		if strings.HasPrefix(trimmed, "### ") {
-			bodyHtml.WriteString(fmt.Sprintf("<h3 style='color:#4F46E5; margin-top:14px; margin-bottom:6px;'>%s</h3>", html.EscapeString(strings.TrimPrefix(trimmed, "### "))))
-		} else if strings.HasPrefix(trimmed, "## ") {
-			bodyHtml.WriteString(fmt.Sprintf("<h2 style='color:#1E293B; margin-top:18px; margin-bottom:8px; border-bottom:1px solid #E2E8F0; padding-bottom:4px;'>%s</h2>", html.EscapeString(strings.TrimPrefix(trimmed, "## "))))
-		} else if strings.HasPrefix(trimmed, "# ") {
-			bodyHtml.WriteString(fmt.Sprintf("<h1 style='color:#0F172A; margin-top:22px; margin-bottom:10px;'>%s</h1>", html.EscapeString(strings.TrimPrefix(trimmed, "# "))))
-		} else if strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") {
-			bodyHtml.WriteString(fmt.Sprintf("<li style='margin-left:20px; line-height:1.6;'>%s</li>", html.EscapeString(strings.TrimPrefix(strings.TrimPrefix(trimmed, "- "), "* "))))
-		} else {
-			bodyHtml.WriteString(fmt.Sprintf("<p style='line-height:1.6; margin-bottom:6px;'>%s</p>", html.EscapeString(trimmed)))
+		end := strings.Index(escaped[start+2:], "**")
+		if end == -1 {
+			break
 		}
+		boldContent := escaped[start+2 : start+2+end]
+		escaped = escaped[:start] + "<strong class='note-bold'>" + boldContent + "</strong>" + escaped[start+2+end+2:]
 	}
 
-	if len(questions) > 0 {
-		bodyHtml.WriteString("<div style='margin-top:28px; padding:16px; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:12px;'>")
-		bodyHtml.WriteString("<h2 style='color:#0F172A; margin-top:0;'>Review Questions & Exam Traps</h2>")
-		for i, q := range questions {
-			bodyHtml.WriteString("<div style='margin-bottom:14px; padding:10px; background:#FFFFFF; border-radius:8px; border-left:4px solid #4F46E5;'>")
-			bodyHtml.WriteString(fmt.Sprintf("<p style='font-weight:bold; color:#1E293B;'>Q%d. %s</p>", i+1, html.EscapeString(q.QuestionText)))
-			for optIdx, opt := range q.Options {
-				checked := "[ ] "
-				color := "#475569"
-				if optIdx == q.CorrectOptionIndex {
-					checked = "✓ "
-					color = "#16A34A"
+	// Inline Code: `code` -> <code>code</code>
+	for {
+		start := strings.Index(escaped, "`")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(escaped[start+1:], "`")
+		if end == -1 {
+			break
+		}
+		codeContent := escaped[start+1 : start+1+end]
+		escaped = escaped[:start] + "<code class='inline-code'>" + codeContent + "</code>" + escaped[start+1+end+1:]
+	}
+
+	return escaped
+}
+
+func parseMarkdownToStudyHTML(content string) string {
+	var sb strings.Builder
+	lines := strings.Split(content, "\n")
+
+	inCodeBlock := false
+	codeLang := ""
+	var codeContent strings.Builder
+
+	inTable := false
+	var tableHeader []string
+	var tableRows [][]string
+
+	flushTable := func() {
+		if !inTable || len(tableHeader) == 0 {
+			inTable = false
+			tableHeader = nil
+			tableRows = nil
+			return
+		}
+		sb.WriteString("<div class='table-wrapper'><table class='notes-table'><thead><tr>")
+		for _, h := range tableHeader {
+			sb.WriteString(fmt.Sprintf("<th>%s</th>", renderInline(strings.TrimSpace(h))))
+		}
+		sb.WriteString("</tr></thead><tbody>")
+		for _, row := range tableRows {
+			sb.WriteString("<tr>")
+			for _, cell := range row {
+				sb.WriteString(fmt.Sprintf("<td>%s</td>", renderInline(strings.TrimSpace(cell))))
+			}
+			sb.WriteString("</tr>")
+		}
+		sb.WriteString("</tbody></table></div>")
+		inTable = false
+		tableHeader = nil
+		tableRows = nil
+	}
+
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		trimmed := strings.TrimSpace(line)
+
+		// Code block handling
+		if strings.HasPrefix(trimmed, "```") {
+			if inCodeBlock {
+				inCodeBlock = false
+				sb.WriteString(fmt.Sprintf("<div class='code-block'><div class='code-badge'>%s</div><pre><code>%s</code></pre></div>",
+					html.EscapeString(codeLang), html.EscapeString(codeContent.String())))
+				codeContent.Reset()
+				codeLang = ""
+			} else {
+				flushTable()
+				inCodeBlock = true
+				codeLang = strings.ToUpper(strings.TrimPrefix(trimmed, "```"))
+				if codeLang == "" {
+					codeLang = "CODE / FORMULA"
 				}
-				bodyHtml.WriteString(fmt.Sprintf("<p style='margin:4px 0 4px 16px; color:%s;'>%s %s</p>", color, checked, html.EscapeString(opt)))
 			}
-			if q.Explanation != "" {
-				bodyHtml.WriteString(fmt.Sprintf("<p style='font-size:12px; color:#16A34A; margin-top:6px;'><strong>Explanation:</strong> %s</p>", html.EscapeString(q.Explanation)))
+			continue
+		}
+		if inCodeBlock {
+			codeContent.WriteString(line)
+			codeContent.WriteString("\n")
+			continue
+		}
+
+		// Table handling
+		if strings.HasPrefix(trimmed, "|") && strings.HasSuffix(trimmed, "|") {
+			rawCols := strings.Split(trimmed, "|")
+			if len(rawCols) >= 3 {
+				var cols []string
+				for cIdx := 1; cIdx < len(rawCols)-1; cIdx++ {
+					cols = append(cols, rawCols[cIdx])
+				}
+
+				// Check if separator line (|---|---|)
+				isSep := true
+				for _, c := range cols {
+					cTrim := strings.TrimSpace(c)
+					if !strings.Contains(cTrim, "-") && cTrim != "" {
+						isSep = false
+						break
+					}
+				}
+
+				if isSep {
+					continue
+				}
+
+				if !inTable {
+					inTable = true
+					tableHeader = cols
+				} else {
+					tableRows = append(tableRows, cols)
+				}
+				continue
 			}
-			if q.TrapWarning != "" {
-				bodyHtml.WriteString(fmt.Sprintf("<p style='font-size:12px; color:#DC2626; margin-top:4px;'><strong>⚠️ Trap Alert:</strong> %s</p>", html.EscapeString(q.TrapWarning)))
+		} else if inTable {
+			flushTable()
+		}
+
+		if trimmed == "" {
+			sb.WriteString("<div class='spacer'></div>")
+			continue
+		}
+
+		// Callouts
+		if strings.HasPrefix(trimmed, "> ") {
+			calloutContent := strings.TrimPrefix(trimmed, "> ")
+			classType := "callout-concept"
+			title := "💡 Core Academic Concept"
+			icon := "💡"
+
+			lower := strings.ToLower(calloutContent)
+			if strings.Contains(lower, "trap") || strings.Contains(lower, "warning") || strings.Contains(lower, "pitfall") || strings.Contains(calloutContent, "⚠️") {
+				classType = "callout-trap"
+				title = "⚠️ Examiner Trap & Common Mistake"
+				icon = "⚠️"
+			} else if strings.Contains(lower, "formula") || strings.Contains(lower, "equation") || strings.Contains(calloutContent, "📐") {
+				classType = "callout-formula"
+				title = "📐 Key Formula & Derivation"
+				icon = "📐"
+			} else if strings.Contains(lower, "tip") || strings.Contains(lower, "shortcut") || strings.Contains(calloutContent, "🎯") {
+				classType = "callout-tip"
+				title = "🎯 Exam Shortcut & Strategy"
+				icon = "🎯"
+			}
+
+			cleanText := calloutContent
+			cleanText = strings.TrimPrefix(cleanText, "[!NOTE]")
+			cleanText = strings.TrimPrefix(cleanText, "[!WARNING]")
+			cleanText = strings.TrimPrefix(cleanText, "[!TIP]")
+
+			sb.WriteString(fmt.Sprintf("<div class='callout %s'><div class='callout-header'><span class='callout-icon'>%s</span><span class='callout-title'>%s</span></div><div class='callout-body'>%s</div></div>",
+				classType, icon, title, renderInline(cleanText)))
+			continue
+		}
+
+		// Headings
+		if strings.HasPrefix(trimmed, "#### ") {
+			sb.WriteString(fmt.Sprintf("<h4 class='note-h4'>%s</h4>", renderInline(strings.TrimPrefix(trimmed, "#### "))))
+		} else if strings.HasPrefix(trimmed, "### ") {
+			sb.WriteString(fmt.Sprintf("<h3 class='note-h3'>%s</h3>", renderInline(strings.TrimPrefix(trimmed, "### "))))
+		} else if strings.HasPrefix(trimmed, "## ") {
+			sb.WriteString(fmt.Sprintf("<h2 class='note-h2'>%s</h2>", renderInline(strings.TrimPrefix(trimmed, "## "))))
+		} else if strings.HasPrefix(trimmed, "# ") {
+			sb.WriteString(fmt.Sprintf("<h1 class='note-h1'>%s</h1>", renderInline(strings.TrimPrefix(trimmed, "# "))))
+		} else if strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") {
+			sb.WriteString(fmt.Sprintf("<div class='bullet-item'><span class='bullet-dot'>•</span><span class='bullet-text'>%s</span></div>",
+				renderInline(strings.TrimPrefix(strings.TrimPrefix(trimmed, "- "), "* "))))
+		} else if len(trimmed) > 2 && trimmed[0] >= '1' && trimmed[0] <= '9' && trimmed[1] == '.' {
+			num := trimmed[:2]
+			rest := strings.TrimSpace(trimmed[2:])
+			sb.WriteString(fmt.Sprintf("<div class='num-item'><span class='num-badge'>%s</span><span class='bullet-text'>%s</span></div>",
+				num, renderInline(rest)))
+		} else {
+			sb.WriteString(fmt.Sprintf("<p class='note-p'>%s</p>", renderInline(trimmed)))
+		}
+	}
+	flushTable()
+	return sb.String()
+}
+
+func buildStudyPackHTML(req dto.ExportPDFRequest, questions []*model.QuizQuestion) string {
+	var bodyHtml strings.Builder
+
+	title := req.Title
+	if title == "" {
+		title = "StudySilo Academic Notes"
+	}
+	docType := req.DocumentType
+	if docType == "" {
+		docType = "Comprehensive Study Pack & Lecture Notes"
+	}
+	subject := req.Subject
+	if subject == "" {
+		subject = "Core Curriculum & Theory"
+	}
+	targetExam := req.TargetExam
+	if targetExam == "" {
+		targetExam = "Standard Academic Syllabus"
+	}
+	studentName := req.StudentName
+	if studentName == "" {
+		studentName = "StudySilo Scholar"
+	}
+	dateStr := time.Now().Format("02 Jan 2006")
+
+	// Render Chat Turns if present
+	if len(req.ChatTurns) > 0 {
+		bodyHtml.WriteString("<div class='chat-thread-container'>")
+		bodyHtml.WriteString("<div class='section-intro'><span class='section-icon'>💬</span><span class='section-heading'>Interactive Q&A & Lecture Dialogue</span></div>")
+		for i, turn := range req.ChatTurns {
+			if turn.Role == "user" {
+				bodyHtml.WriteString("<div class='chat-card turn-student'>")
+				bodyHtml.WriteString(fmt.Sprintf("<div class='chat-card-header'><span class='badge student-badge'>STUDENT QUERY #%d</span>", i/2+1))
+				if turn.Timestamp != "" {
+					bodyHtml.WriteString(fmt.Sprintf("<span class='chat-time'>%s</span>", html.EscapeString(turn.Timestamp)))
+				}
+				bodyHtml.WriteString("</div>")
+				bodyHtml.WriteString(fmt.Sprintf("<div class='chat-content'>%s</div>", parseMarkdownToStudyHTML(turn.Content)))
+				bodyHtml.WriteString("</div>")
+			} else {
+				bodyHtml.WriteString("<div class='chat-card turn-tutor'>")
+				bodyHtml.WriteString("<div class='chat-card-header'><span class='badge tutor-badge'>🎓 AI PROFESSOR • STEP-BY-STEP SOLUTION</span></div>")
+				bodyHtml.WriteString(fmt.Sprintf("<div class='chat-content'>%s</div>", parseMarkdownToStudyHTML(turn.Content)))
+				bodyHtml.WriteString("</div>")
+			}
+		}
+		bodyHtml.WriteString("</div>")
+	}
+
+	// Render Markdown Body Content
+	if req.Content != "" {
+		bodyHtml.WriteString(parseMarkdownToStudyHTML(req.Content))
+	}
+
+	// Render Quiz Questions if present
+	if len(questions) > 0 {
+		bodyHtml.WriteString("<div class='quiz-section'>")
+		bodyHtml.WriteString("<div class='section-intro'><span class='section-icon'>📝</span><span class='section-heading'>Diagnostic Assessment & Review Traps</span></div>")
+		for i, q := range questions {
+			bodyHtml.WriteString("<div class='quiz-card'>")
+			bodyHtml.WriteString(fmt.Sprintf("<div class='quiz-question-header'><span class='q-number'>Q%d</span><span class='q-text'>%s</span></div>", i+1, renderInline(q.QuestionText)))
+			bodyHtml.WriteString("<div class='quiz-options'>")
+			for optIdx, opt := range q.Options {
+				isCorrect := optIdx == q.CorrectOptionIndex
+				checkedClass := "opt-neutral"
+				marker := fmt.Sprintf("(%c) ", 'A'+optIdx)
+				if isCorrect && req.IncludeSolutions {
+					checkedClass = "opt-correct"
+					marker = "✓ "
+				}
+				bodyHtml.WriteString(fmt.Sprintf("<div class='opt-item %s'><span class='opt-marker'>%s</span><span class='opt-text'>%s</span></div>",
+					checkedClass, marker, renderInline(opt)))
+			}
+			bodyHtml.WriteString("</div>")
+
+			if req.IncludeSolutions {
+				if q.Explanation != "" {
+					bodyHtml.WriteString(fmt.Sprintf("<div class='quiz-explanation'><span class='expl-label'>EXPLANATION:</span> %s</div>", renderInline(q.Explanation)))
+				}
+				if q.TrapWarning != "" {
+					bodyHtml.WriteString(fmt.Sprintf("<div class='quiz-trap'><span class='trap-label'>⚠️ EXAMINER TRAP ALERT:</span> %s</div>", renderInline(q.TrapWarning)))
+				}
 			}
 			bodyHtml.WriteString("</div>")
 		}
@@ -161,36 +427,320 @@ func buildStudyPackHTML(title, content string, questions []*model.QuizQuestion) 
 <html>
 <head>
 <meta charset="utf-8">
+<title>%s - StudySilo Notes</title>
+<!-- KaTeX Vector Math Rendering -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"
+    onload="renderMathInElement(document.body, {
+        delimiters: [
+            {left: '$$', right: '$$', display: true},
+            {left: '$', right: '$', display: false},
+            {left: '\\(', right: '\\)', display: false},
+            {left: '\\[', right: '\\]', display: true}
+        ]
+    });"></script>
 <style>
-  body { font-family: 'Segoe UI', Helvetica, Arial, sans-serif; margin: 24px; color: #1E293B; }
-  .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #4F46E5; padding-bottom: 12px; margin-bottom: 20px; }
-  .brand { font-size: 22px; font-weight: 800; color: #4F46E5; }
-  .badge { font-size: 11px; background: #EEF2FF; color: #4F46E5; padding: 4px 10px; border-radius: 999px; font-weight: 600; }
-  .title-card { background: #4F46E5; color: white; padding: 18px 22px; border-radius: 12px; margin-bottom: 24px; }
-  .title-card h1 { margin: 0; font-size: 24px; }
-  .footer { margin-top: 36px; padding-top: 12px; border-top: 1px solid #CBD5E1; font-size: 11px; color: #64748B; text-align: center; }
+  @page {
+    size: A4;
+    margin: 14mm 14mm 14mm 14mm;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: #0F172A;
+    background: #FFFFFF;
+    margin: 0;
+    padding: 0;
+    font-size: 13px;
+    line-height: 1.6;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Academic Header Bar */
+  .brand-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 2px solid #4F46E5;
+    padding-bottom: 10px;
+    margin-bottom: 16px;
+  }
+  .brand-logo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .brand-icon {
+    width: 26px;
+    height: 26px;
+    background: #4F46E5;
+    color: white;
+    font-weight: 900;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+  }
+  .brand-name {
+    font-size: 19px;
+    font-weight: 900;
+    color: #0F172A;
+    letter-spacing: -0.4px;
+  }
+  .header-meta {
+    font-size: 11px;
+    color: #64748B;
+    font-weight: 600;
+  }
+
+  /* Title Banner */
+  .title-banner {
+    background: linear-gradient(135deg, #1E1B4B 0%%, #312E81 100%%);
+    color: white;
+    padding: 18px 22px;
+    border-radius: 12px;
+    margin-bottom: 18px;
+  }
+  .title-banner h1 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.3px;
+  }
+  .meta-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .pill {
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.18);
+    color: white;
+    letter-spacing: 0.2px;
+  }
+  .pill-accent {
+    background: #F59E0B;
+    color: #0F172A;
+  }
+
+  /* Headings */
+  .note-h1 { font-size: 18px; font-weight: 800; color: #0F172A; margin: 20px 0 8px 0; border-bottom: 1.5px solid #E2E8F0; padding-bottom: 4px; }
+  .note-h2 { font-size: 15.5px; font-weight: 800; color: #1E293B; margin: 16px 0 6px 0; border-left: 4px solid #4F46E5; padding-left: 8px; }
+  .note-h3 { font-size: 13.5px; font-weight: 700; color: #4F46E5; margin: 12px 0 4px 0; }
+  .note-h4 { font-size: 12.5px; font-weight: 700; color: #334155; margin: 10px 0 4px 0; }
+  .note-p { margin: 0 0 8px 0; color: #1E293B; }
+  .note-bold { color: #0F172A; font-weight: 700; }
+  .inline-code { background: #F1F5F9; color: #4338CA; padding: 1px 5px; border-radius: 4px; font-family: 'Consolas', monospace; font-size: 11.5px; }
+  .spacer { height: 6px; }
+
+  /* Bullets & Lists */
+  .bullet-item, .num-item { display: flex; align-items: baseline; margin-bottom: 4px; }
+  .bullet-dot { color: #4F46E5; font-weight: bold; width: 14px; font-size: 15px; }
+  .num-badge { color: #4F46E5; font-weight: 800; font-size: 11.5px; width: 20px; }
+  .bullet-text { flex: 1; color: #1E293B; }
+
+  /* Callout Boxes (Harvard / Notion Style) */
+  .callout {
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin: 12px 0;
+    page-break-inside: avoid;
+  }
+  .callout-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+    font-weight: 800;
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .callout-body {
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .callout-concept { background: #EEF2FF; border-left: 4px solid #4F46E5; color: #312E81; }
+  .callout-trap { background: #FEF2F2; border-left: 4px solid #EF4444; color: #991B1B; }
+  .callout-formula { background: #0F172A; color: #38BDF8; border-left: 4px solid #38BDF8; font-family: 'Consolas', monospace; }
+  .callout-formula .callout-title { color: #7DD3FC; }
+  .callout-tip { background: #ECFDF5; border-left: 4px solid #10B981; color: #065F46; }
+
+  /* Academic Tables */
+  .table-wrapper {
+    margin: 12px 0;
+    border: 1px solid #E2E8F0;
+    border-radius: 8px;
+    overflow: hidden;
+    page-break-inside: avoid;
+  }
+  .notes-table {
+    width: 100%%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  .notes-table th {
+    background: #0F172A;
+    color: #F8FAFC;
+    font-weight: 700;
+    padding: 9px 12px;
+    text-align: left;
+    font-size: 11px;
+    letter-spacing: 0.4px;
+  }
+  .notes-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid #E2E8F0;
+    color: #1E293B;
+  }
+  .notes-table tr:nth-child(even) td { background: #F8FAFC; }
+
+  /* Code Block */
+  .code-block {
+    background: #0F172A;
+    color: #38BDF8;
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin: 10px 0;
+    font-family: 'Consolas', monospace;
+    font-size: 11.5px;
+    page-break-inside: avoid;
+  }
+  .code-badge { font-size: 9px; font-weight: 800; color: #94A3B8; text-transform: uppercase; margin-bottom: 4px; }
+  .code-block pre { margin: 0; white-space: pre-wrap; word-break: break-all; }
+
+  /* Chat Thread Cards */
+  .chat-thread-container { margin: 16px 0; }
+  .section-intro { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 800; color: #0F172A; margin-bottom: 10px; }
+  .chat-card {
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    page-break-inside: avoid;
+  }
+  .turn-student {
+    background: #F8FAFC;
+    border: 1px solid #E2E8F0;
+    border-left: 4px solid #64748B;
+  }
+  .turn-tutor {
+    background: #FFFFFF;
+    border: 1px solid #C7D2FE;
+    border-left: 4px solid #4F46E5;
+    box-shadow: 0 1px 3px rgba(79, 70, 229, 0.05);
+  }
+  .chat-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .badge { font-size: 9.5px; font-weight: 800; padding: 2px 7px; border-radius: 4px; letter-spacing: 0.3px; }
+  .student-badge { background: #E2E8F0; color: #334155; }
+  .tutor-badge { background: #EEF2FF; color: #4F46E5; }
+  .chat-time { font-size: 10px; color: #94A3B8; }
+
+  /* Quiz Section */
+  .quiz-section { margin-top: 20px; page-break-inside: avoid; }
+  .quiz-card {
+    background: white;
+    border: 1px solid #E2E8F0;
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    page-break-inside: avoid;
+  }
+  .quiz-question-header { display: flex; gap: 8px; font-size: 13px; font-weight: 700; color: #0F172A; margin-bottom: 8px; }
+  .q-number { background: #4F46E5; color: white; padding: 1px 6px; border-radius: 4px; font-size: 11px; height: fit-content; }
+  .opt-item { padding: 4px 8px; font-size: 12px; border-radius: 6px; margin-bottom: 3px; }
+  .opt-neutral { color: #334155; }
+  .opt-correct { background: #DCFCE7; color: #15803D; font-weight: 700; }
+  .quiz-explanation { background: #F0FDF4; border-left: 3px solid #16A34A; color: #166534; padding: 6px 10px; font-size: 11.5px; margin-top: 6px; border-radius: 4px; }
+  .quiz-trap { background: #FEF2F2; border-left: 3px solid #DC2626; color: #991B1B; padding: 6px 10px; font-size: 11.5px; margin-top: 4px; border-radius: 4px; }
+  .expl-label, .trap-label { font-weight: 800; font-size: 10px; }
+
+  /* Footer */
+  .doc-footer {
+    margin-top: 30px;
+    padding-top: 10px;
+    border-top: 1px solid #CBD5E1;
+    font-size: 10.5px;
+    color: #64748B;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
 </style>
 </head>
 <body>
-  <div class="header">
-    <div class="brand">StudySilo</div>
-    <div class="badge">AI-Powered Study Pack</div>
+  <!-- Brand Header -->
+  <div class="brand-header">
+    <div class="brand-logo">
+      <div class="brand-icon">S</div>
+      <div class="brand-name">StudySilo</div>
+    </div>
+    <div class="header-meta">%s • %s</div>
   </div>
-  <div class="title-card">
+
+  <!-- Title Banner -->
+  <div class="title-banner">
     <h1>%s</h1>
-    <p style="margin: 6px 0 0 0; opacity: 0.9; font-size: 12px;">Generated via StudySilo AI Academic Companion</p>
+    <div class="meta-pills">
+      <span class="pill pill-accent">%s</span>
+      <span class="pill">🎯 %s</span>
+      <span class="pill">📚 %s</span>
+      <span class="pill">👤 %s</span>
+    </div>
   </div>
-  <div class="content">
+
+  <!-- Body Content -->
+  <div class="content-body">
     %s
   </div>
-  <div class="footer">
-    StudySilo.in • High-Yield Revision Pack • Empowering Autonomous Learning
+
+  <!-- Footer -->
+  <div class="doc-footer">
+    <div>StudySilo.in • Autonomous AI Academic Companion</div>
+    <div>Personalized Study Pack • High-Yield Revision</div>
   </div>
 </body>
-</html>`, html.EscapeString(title), bodyHtml.String())
+</html>`,
+		html.EscapeString(title),
+		html.EscapeString(docType),
+		dateStr,
+		html.EscapeString(title),
+		html.EscapeString(docType),
+		html.EscapeString(targetExam),
+		html.EscapeString(subject),
+		html.EscapeString(studentName),
+		bodyHtml.String(),
+	)
 }
 
-func (s *pdfExportService) exportWithGofpdf(title, content string, questions []*model.QuizQuestion) ([]byte, error) {
+func (s *pdfExportService) exportWithGofpdf(req dto.ExportPDFRequest, questions []*model.QuizQuestion) ([]byte, error) {
+	title := req.Title
+	if title == "" {
+		title = "StudySilo Study Guide"
+	}
+	content := req.Content
+	if len(req.ChatTurns) > 0 && content == "" {
+		var chatText strings.Builder
+		for i, t := range req.ChatTurns {
+			if t.Role == "user" {
+				chatText.WriteString(fmt.Sprintf("\n### Question %d\n%s\n", i/2+1, t.Content))
+			} else {
+				chatText.WriteString(fmt.Sprintf("\n### Solution\n%s\n", t.Content))
+			}
+		}
+		content = chatText.String()
+	}
 	pdf := gofpdf.New("P", "mm", "A4", "")
 	pdf.SetMargins(15, 20, 15)
 	pdf.SetAutoPageBreak(true, 20)
@@ -321,10 +871,22 @@ func (s *pdfExportService) ExportMindMapPoster(ctx context.Context, req dto.Expo
 	cCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
 
+	release, err := acquireChromeLock(cCtx)
+	if err != nil {
+		// Fallback to gofpdf if chrome semaphore timeout
+		return s.exportPosterWithGofpdf(title, req.Archetype, req.Summary, req.Nodes)
+	}
+	defer release()
+
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.DisableGPU,
 		chromedp.NoSandbox,
 		chromedp.Headless,
+		chromedp.Flag("disable-dev-shm-usage", true),
+		chromedp.Flag("no-zygote", true),
+		chromedp.Flag("mute-audio", true),
+		chromedp.Flag("disable-extensions", true),
+		chromedp.Flag("js-flags", "--max-old-space-size=128"),
 	)
 
 	allocCtx, allocCancel := chromedp.NewExecAllocator(cCtx, opts...)
@@ -333,7 +895,7 @@ func (s *pdfExportService) ExportMindMapPoster(ctx context.Context, req dto.Expo
 	taskCtx, taskCancel := chromedp.NewContext(allocCtx)
 	defer taskCancel()
 
-	err := chromedp.Do(taskCtx,
+	err = chromedp.Do(taskCtx,
 		chromedp.Navigate("data:text/html;charset=utf-8,"+url.PathEscape(htmlContent)),
 	)
 	if err == nil {

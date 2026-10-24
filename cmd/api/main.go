@@ -9,12 +9,21 @@ import (
 	"goProjectStructure/internal/servers"
 	"goProjectStructure/internal/utils"
 	"goProjectStructure/internal/worker"
+	"os"
+	"runtime/debug"
 	"strings"
 
 	"go.uber.org/zap"
 )
 
 func main() {
+	// Tune Go Runtime memory limit for 1GB RAM budget VPS.
+	// If GOMEMLIMIT is not explicitly specified in the environment,
+	// set a safe 384 MiB ceiling so the Go GC triggers proactively before the Linux OOM killer.
+	if os.Getenv("GOMEMLIMIT") == "" {
+		debug.SetMemoryLimit(384 * 1024 * 1024)
+	}
+
 	logger := middleware.New()
 	defer logger.Sync()
 

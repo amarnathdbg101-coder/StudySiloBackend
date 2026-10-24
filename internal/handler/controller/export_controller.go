@@ -2,8 +2,10 @@ package controller
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"goProjectStructure/internal/handler/dto"
 	"goProjectStructure/internal/handler/services"
@@ -43,6 +45,21 @@ func (c *ExportController) ExportPDF(w http.ResponseWriter, r *http.Request) {
 	if qTitle := r.URL.Query().Get("title"); qTitle != "" {
 		req.Title = qTitle
 	}
+	if qSub := r.URL.Query().Get("subject"); qSub != "" {
+		req.Subject = qSub
+	}
+	if qExam := r.URL.Query().Get("target_exam"); qExam != "" {
+		req.TargetExam = qExam
+	}
+	if qDocType := r.URL.Query().Get("document_type"); qDocType != "" {
+		req.DocumentType = qDocType
+	}
+	if qStudent := r.URL.Query().Get("student_name"); qStudent != "" {
+		req.StudentName = qStudent
+	}
+	if qSol := r.URL.Query().Get("include_solutions"); qSol == "true" || qSol == "1" {
+		req.IncludeSolutions = true
+	}
 
 	if req.Title == "" {
 		req.Title = "StudySilo Study Material"
@@ -54,8 +71,19 @@ func (c *ExportController) ExportPDF(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	safeTitle := strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			return r
+		}
+		return '_'
+	}, req.Title)
+	if len(safeTitle) > 40 {
+		safeTitle = safeTitle[:40]
+	}
+	filename := fmt.Sprintf("StudySilo_%s.pdf", safeTitle)
+
 	w.Header().Set("Content-Type", "application/pdf")
-	w.Header().Set("Content-Disposition", "attachment; filename=\"studysilo_study_pack.pdf\"")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
 	w.Header().Set("Content-Length", strconv.Itoa(len(pdfBytes)))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(pdfBytes)
