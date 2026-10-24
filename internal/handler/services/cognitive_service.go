@@ -53,7 +53,16 @@ func NewCognitiveService(
 }
 
 func (s *cognitiveService) GetProfile(ctx context.Context, userID string) (*dto.CognitiveProfileResponse, error) {
-	if userID == "" || userID == "guest-user" || s.cognitiveRepo == nil {
+	if userID == "guest-user" {
+		if val, found := reuse.GetCache().Get("cognitive_profile:guest-user"); found {
+			if gp, ok := val.(*model.CognitiveProfile); ok {
+				return toProfileResponse(gp), nil
+			}
+		}
+		return toProfileResponse(nil), nil
+	}
+
+	if userID == "" || s.cognitiveRepo == nil {
 		return toProfileResponse(nil), nil
 	}
 
@@ -133,22 +142,52 @@ func (s *cognitiveService) getDynamicCurricula(ctx context.Context) []ai.ExamCur
 
 // invalidateSmartContext purges cached smart context for the user upon profile/learning mutations
 func (s *cognitiveService) invalidateSmartContext(userID string) {
-	if userID != "" && userID != "guest-user" {
+	if userID != "" {
 		reuse.GetCache().DeleteByPrefix("smart_ctx:" + userID + ":")
 	}
 }
 
 func (s *cognitiveService) UpdateGoals(ctx context.Context, userID string, req dto.UpdateCognitiveGoalRequest) (*dto.CognitiveProfileResponse, error) {
 	if userID == "" || userID == "guest-user" || s.cognitiveRepo == nil {
-		return toProfileResponse(nil), nil
+		guestProfile := &model.CognitiveProfile{
+			UserID:        "guest-user",
+			TargetExam:    "General Academic Preparation",
+			AcademicLevel: "School / College (Adaptive)",
+			WeakTopics:    []string{},
+			StrongTopics:  []string{},
+			ExamTraps:     []string{},
+		}
+		if val, found := reuse.GetCache().Get("cognitive_profile:guest-user"); found {
+			if gp, ok := val.(*model.CognitiveProfile); ok {
+				guestProfile = gp
+			}
+		}
+		if req.TargetExam != nil {
+			guestProfile.TargetExam = strings.TrimSpace(*req.TargetExam)
+		}
+		if req.AcademicLevel != nil {
+			guestProfile.AcademicLevel = strings.TrimSpace(*req.AcademicLevel)
+		}
+		if req.WeakTopics != nil {
+			guestProfile.WeakTopics = *req.WeakTopics
+		}
+		if req.StrongTopics != nil {
+			guestProfile.StrongTopics = *req.StrongTopics
+		}
+		if req.ExamTrapsToWatch != nil {
+			guestProfile.ExamTraps = *req.ExamTrapsToWatch
+		}
+		reuse.GetCache().Set("cognitive_profile:guest-user", guestProfile, 30*time.Minute)
+		s.invalidateSmartContext("guest-user")
+		return toProfileResponse(guestProfile), nil
 	}
 
 	profile, err := s.cognitiveRepo.GetByUserID(ctx, userID)
 	if err != nil {
 		profile = &model.CognitiveProfile{
 			UserID:        userID,
-			TargetExam:    "Competitive / University Exam",
-			AcademicLevel: "Undergraduate",
+			TargetExam:    "General Academic Preparation",
+			AcademicLevel: "School / College (Adaptive)",
 			WeakTopics:    []string{},
 			StrongTopics:  []string{},
 			ExamTraps:     []string{},

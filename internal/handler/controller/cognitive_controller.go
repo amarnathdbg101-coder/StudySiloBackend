@@ -62,9 +62,9 @@ func (c *CognitiveController) GetSmartContext(w http.ResponseWriter, r *http.Req
 // UpdateGoals updates target exam, academic level, and custom topics
 func (c *CognitiveController) UpdateGoals(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.GetUserFromContext(r.Context())
-	if claims == nil {
-		reuse.Error(w, http.StatusUnauthorized, "unauthorized access")
-		return
+	userID := "guest-user"
+	if claims != nil && claims.UserID != "" {
+		userID = claims.UserID
 	}
 
 	var req dto.UpdateCognitiveGoalRequest
