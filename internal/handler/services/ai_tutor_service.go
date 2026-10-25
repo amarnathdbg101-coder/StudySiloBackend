@@ -144,8 +144,8 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 	cacheKey := repository.ComputeDoubtCacheKey(req)
 	// ZERO FALSE-POSITIVE RULE:
 	// If this doubt has any conversational history (from DB or client request), or is an edit/regeneration,
-	// it is a contextual follow-up. We MUST bypass cache so we never return a stale or generic answer.
-	if len(history) > 0 {
+	// or has custom cognitive instructions / target exam, bypass cache so we never return a stale or generic answer.
+	if len(history) > 0 || (targetExam != "" && targetExam != "General / University" && targetExam != "General Academic Preparation") {
 		cacheKey = ""
 	}
 
