@@ -21,7 +21,7 @@ func BuildLanguageInstruction(lang string) string {
 - ABSOLUTELY FORBIDDEN: Writing the explanation in pure English paragraphs!
   ❌ NEVER DO THIS: "Merge sort is an efficient sorting algorithm based on divide and conquer..."
   ✅ ALWAYS DO THIS: "Merge sort ek bahut hi efficient divide-and-conquer algorithm hai. Iska basic funda ye hai ki array ko tab tak recursively aadha-aadha todte raho jab tak single elements na bachein, aur fir unhe sorted order me merge kardo."
-- Point-by-Point Simplicity: Explain the concept step-by-step using simple, friendly Hinglish words.
+- Step-by-Step Simplicity: Explain the concept step-by-step using simple, friendly Hinglish words.
 - Technical Keywords: Standard technical words, variable names, and LaTeX formulas are kept in English notation (e.g. O(N log N), arr[mid], recursion), but all sentences explaining them MUST be in natural Hinglish.
 - Absolute Rule: Even if the student's query is in 100% English (e.g., "Explain merge sort"), you MUST ignore the English query language and respond STRICTLY in HINGLISH as chosen in student settings.
 ================================================================================`
@@ -31,7 +31,7 @@ func BuildLanguageInstruction(lang string) string {
 🚨 CRITICAL OVERRIDING DIRECTIVE: STRICT ENGLISH MANDATORY 🚨
 ================================================================================
 - Target Language: ENGLISH ONLY.
-- Deliver your ENTIRE explanation, point-by-point steps, and formulas in clear, professional, academic English.
+- Deliver your ENTIRE explanation, steps, and formulas in clear, professional, academic English.
 - Even if the student asked in Hindi or Hinglish, your response MUST be exclusively in English.
 ================================================================================`
 

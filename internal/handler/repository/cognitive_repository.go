@@ -119,7 +119,7 @@ func (r *cognitiveRepo) Upsert(ctx context.Context, profile *model.CognitiveProf
 			study_streak_days, total_study_minutes, total_quizzes_taken, average_quiz_score,
 			ai_summary, topic_mastery, readiness_score, recommended_actions, total_doubts_asked,
 			last_active_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), NOW())
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13, $14::jsonb, $15, NOW(), NOW())
 		ON CONFLICT (user_id) DO UPDATE SET
 			target_exam = EXCLUDED.target_exam,
 			academic_level = EXCLUDED.academic_level,
@@ -156,13 +156,21 @@ func (r *cognitiveRepo) Upsert(ctx context.Context, profile *model.CognitiveProf
 
 	masteryBytes, _ := json.Marshal(profile.TopicMastery)
 	actionsBytes, _ := json.Marshal(profile.RecommendedActions)
+	masteryStr := string(masteryBytes)
+	if masteryStr == "" || masteryStr == "null" {
+		masteryStr = "{}"
+	}
+	actionsStr := string(actionsBytes)
+	if actionsStr == "" || actionsStr == "null" {
+		actionsStr = "[]"
+	}
 
 	err := r.db.QueryRow(ctx, query,
 		profile.UserID, profile.TargetExam, profile.AcademicLevel,
 		profile.WeakTopics, profile.StrongTopics, profile.ExamTraps,
 		profile.StudyStreakDays, profile.TotalStudyMinutes, profile.TotalQuizzesTaken,
-		profile.AverageQuizScore, profile.AISummary, masteryBytes, profile.ReadinessScore,
-		actionsBytes, profile.TotalDoubtsAsked,
+		profile.AverageQuizScore, profile.AISummary, masteryStr, profile.ReadinessScore,
+		actionsStr, profile.TotalDoubtsAsked,
 	).Scan(&profile.LastActiveAt, &profile.UpdatedAt)
 
 	if err == nil {
