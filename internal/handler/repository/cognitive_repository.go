@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"goProjectStructure/internal/handler/model"
@@ -55,6 +56,7 @@ func (r *cognitiveRepo) GetByUserID(ctx context.Context, userID string) (*model.
 			COALESCE(readiness_score, 50),
 			COALESCE(recommended_actions, '[]'::jsonb),
 			COALESCE(total_doubts_asked, 0),
+			COALESCE(custom_instructions, ''),
 			last_active_at, updated_at
 		FROM cognitive_profiles
 		WHERE user_id = $1
@@ -71,7 +73,7 @@ func (r *cognitiveRepo) GetByUserID(ctx context.Context, userID string) (*model.
 		&p.WeakTopics, &p.StrongTopics, &p.ExamTraps,
 		&p.StudyStreakDays, &p.TotalStudyMinutes, &p.TotalQuizzesTaken,
 		&p.AverageQuizScore, &p.AISummary, &rawMastery, &p.ReadinessScore,
-		&rawActions, &p.TotalDoubtsAsked, &p.LastActiveAt, &p.UpdatedAt,
+		&rawActions, &p.TotalDoubtsAsked, &p.CustomInstructions, &p.LastActiveAt, &p.UpdatedAt,
 	)
 
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -79,6 +81,7 @@ func (r *cognitiveRepo) GetByUserID(ctx context.Context, userID string) (*model.
 			UserID:             userID,
 			TargetExam:         "General / University",
 			AcademicLevel:      "Undergraduate",
+			CustomInstructions: "",
 			WeakTopics:         []string{},
 			StrongTopics:       []string{},
 			ExamTraps:          []string{},
@@ -118,8 +121,9 @@ func (r *cognitiveRepo) Upsert(ctx context.Context, profile *model.CognitiveProf
 			user_id, target_exam, academic_level, weak_topics, strong_topics, exam_traps,
 			study_streak_days, total_study_minutes, total_quizzes_taken, average_quiz_score,
 			ai_summary, topic_mastery, readiness_score, recommended_actions, total_doubts_asked,
+			custom_instructions,
 			last_active_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13, $14::jsonb, $15, NOW(), NOW())
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13, $14::jsonb, $15, $16, NOW(), NOW())
 		ON CONFLICT (user_id) DO UPDATE SET
 			target_exam = EXCLUDED.target_exam,
 			academic_level = EXCLUDED.academic_level,
@@ -135,6 +139,7 @@ func (r *cognitiveRepo) Upsert(ctx context.Context, profile *model.CognitiveProf
 			readiness_score = EXCLUDED.readiness_score,
 			recommended_actions = EXCLUDED.recommended_actions,
 			total_doubts_asked = EXCLUDED.total_doubts_asked,
+			custom_instructions = EXCLUDED.custom_instructions,
 			updated_at = NOW()
 		RETURNING last_active_at, updated_at
 	`
@@ -170,7 +175,7 @@ func (r *cognitiveRepo) Upsert(ctx context.Context, profile *model.CognitiveProf
 		profile.WeakTopics, profile.StrongTopics, profile.ExamTraps,
 		profile.StudyStreakDays, profile.TotalStudyMinutes, profile.TotalQuizzesTaken,
 		profile.AverageQuizScore, profile.AISummary, masteryStr, profile.ReadinessScore,
-		actionsStr, profile.TotalDoubtsAsked,
+		actionsStr, profile.TotalDoubtsAsked, profile.CustomInstructions,
 	).Scan(&profile.LastActiveAt, &profile.UpdatedAt)
 
 	if err == nil {
@@ -266,32 +271,76 @@ func (r *cognitiveRepo) RecordActivity(ctx context.Context, userID, activityType
 	current.TotalStudyMinutes += durationMinutes
 	current.StudyStreakDays = calculateStreak(current.LastActiveAt, current.StudyStreakDays)
 
+	cleanTopic := strings.TrimSpace(topic)
 	if activityType == "doubt" {
 		current.TotalDoubtsAsked++
-		if topic != "" {
-			// If not already in strong topics or weak topics, tag into weak topics for AI reinforcement
-			hasInStrong := false
-			for _, st := range current.StrongTopics {
-				if st == topic {
-					hasInStrong = true
+		if cleanTopic != "" && !strings.EqualFold(cleanTopic, "General Concept") {
+			if current.TopicMastery == nil {
+				current.TopicMastery = make(map[string]int)
+			}
+
+			// Case-insensitive check in strong topics
+			inStrongIdx := -1
+			for i, st := range current.StrongTopics {
+				if strings.EqualFold(st, cleanTopic) {
+					inStrongIdx = i
 					break
 				}
 			}
-			if !hasInStrong {
-				hasInWeak := false
-				for _, wt := range current.WeakTopics {
-					if wt == topic {
-						hasInWeak = true
-						break
+
+			// Case-insensitive check in weak topics
+			inWeakIdx := -1
+			for i, wt := range current.WeakTopics {
+				if strings.EqualFold(wt, cleanTopic) {
+					inWeakIdx = i
+					break
+				}
+			}
+
+			if inStrongIdx != -1 {
+				// Asking doubt on a strong topic slightly adjusts confidence (-5%)
+				existing := current.StrongTopics[inStrongIdx]
+				score := current.TopicMastery[existing]
+				if score == 0 {
+					score = 85
+				} else {
+					score -= 5
+					if score < 70 {
+						score = 70
 					}
 				}
-				if !hasInWeak {
-					current.WeakTopics = append(current.WeakTopics, topic)
-					if current.TopicMastery == nil {
-						current.TopicMastery = make(map[string]int)
+				current.TopicMastery[existing] = score
+			} else if inWeakIdx != -1 {
+				// Re-asking doubt on already weak topic: move to front & decrement score slightly
+				existing := current.WeakTopics[inWeakIdx]
+				score := current.TopicMastery[existing]
+				if score == 0 {
+					score = 40
+				} else {
+					score -= 5
+					if score < 20 {
+						score = 20
 					}
-					current.TopicMastery[topic] = 45 // newly probed concept
 				}
+				current.TopicMastery[existing] = score
+
+				// Move to front (most recently probed)
+				reordered := []string{existing}
+				for idx, item := range current.WeakTopics {
+					if idx != inWeakIdx {
+						reordered = append(reordered, item)
+					}
+				}
+				current.WeakTopics = reordered
+			} else {
+				// New weak topic discovered! Prepend to weak topics
+				current.WeakTopics = append([]string{cleanTopic}, current.WeakTopics...)
+				current.TopicMastery[cleanTopic] = 40
+			}
+
+			// Cap weak topics to top 10 most relevant
+			if len(current.WeakTopics) > 10 {
+				current.WeakTopics = current.WeakTopics[:10]
 			}
 		}
 	}

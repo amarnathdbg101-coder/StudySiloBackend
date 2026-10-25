@@ -27,6 +27,7 @@ type DoubtRequest struct {
 	Mode                 string             `json:"mode"`
 	TargetExam           string             `json:"target_exam"`
 	AcademicLevel        string             `json:"academic_level"`
+	CustomInstructions   string             `json:"custom_instructions,omitempty"`
 	WeakTopics           []string           `json:"weak_topics"`
 	APIKey               string             `json:"api_key,omitempty"`
 	AILanguage           string             `json:"ai_language,omitempty"`

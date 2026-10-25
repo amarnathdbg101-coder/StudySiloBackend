@@ -168,6 +168,9 @@ func (s *cognitiveService) UpdateGoals(ctx context.Context, userID string, req d
 		if req.AcademicLevel != nil {
 			guestProfile.AcademicLevel = strings.TrimSpace(*req.AcademicLevel)
 		}
+		if req.CustomInstructions != nil {
+			guestProfile.CustomInstructions = strings.TrimSpace(*req.CustomInstructions)
+		}
 		if req.WeakTopics != nil {
 			guestProfile.WeakTopics = *req.WeakTopics
 		}
@@ -185,12 +188,13 @@ func (s *cognitiveService) UpdateGoals(ctx context.Context, userID string, req d
 	profile, err := s.cognitiveRepo.GetByUserID(ctx, userID)
 	if err != nil {
 		profile = &model.CognitiveProfile{
-			UserID:        userID,
-			TargetExam:    "General Academic Preparation",
-			AcademicLevel: "School / College (Adaptive)",
-			WeakTopics:    []string{},
-			StrongTopics:  []string{},
-			ExamTraps:     []string{},
+			UserID:             userID,
+			TargetExam:         "General Academic Preparation",
+			AcademicLevel:      "School / College (Adaptive)",
+			CustomInstructions: "",
+			WeakTopics:         []string{},
+			StrongTopics:       []string{},
+			ExamTraps:          []string{},
 		}
 	}
 
@@ -199,6 +203,9 @@ func (s *cognitiveService) UpdateGoals(ctx context.Context, userID string, req d
 	}
 	if req.AcademicLevel != nil {
 		profile.AcademicLevel = strings.TrimSpace(*req.AcademicLevel)
+	}
+	if req.CustomInstructions != nil {
+		profile.CustomInstructions = strings.TrimSpace(*req.CustomInstructions)
 	}
 	if req.WeakTopics != nil {
 		profile.WeakTopics = *req.WeakTopics
@@ -538,6 +545,7 @@ func toProfileResponse(p *model.CognitiveProfile) *dto.CognitiveProfileResponse 
 		return &dto.CognitiveProfileResponse{
 			TargetExam:         "Competitive / University Exam",
 			AcademicLevel:      "Undergraduate",
+			CustomInstructions: "",
 			WeakTopics:         []string{},
 			StrongTopics:       []string{},
 			ExamTraps:          []string{},
@@ -602,6 +610,7 @@ func toProfileResponse(p *model.CognitiveProfile) *dto.CognitiveProfileResponse 
 		UserID:             p.UserID,
 		TargetExam:         p.TargetExam,
 		AcademicLevel:      p.AcademicLevel,
+		CustomInstructions: p.CustomInstructions,
 		WeakTopics:         weak,
 		StrongTopics:       strong,
 		ExamTraps:          traps,

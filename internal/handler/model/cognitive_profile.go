@@ -21,6 +21,7 @@ type CognitiveProfile struct {
 	ReadinessScore     int            `json:"readiness_score" db:"readiness_score"`
 	RecommendedActions []string       `json:"recommended_actions" db:"recommended_actions"`
 	TotalDoubtsAsked   int            `json:"total_doubts_asked" db:"total_doubts_asked"`
+	CustomInstructions string         `json:"custom_instructions" db:"custom_instructions"`
 	LastActiveAt       time.Time      `json:"last_active_at" db:"last_active_at"`
 	UpdatedAt          time.Time      `json:"updated_at" db:"updated_at"`
 }

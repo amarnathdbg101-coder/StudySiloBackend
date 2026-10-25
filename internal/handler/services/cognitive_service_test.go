@@ -92,4 +92,39 @@ func TestCognitiveService_Flow(t *testing.T) {
 	if ctxResp1.FocusTopic != ctxResp2.FocusTopic {
 		t.Errorf("expected cached focus topic to match: %s vs %s", ctxResp1.FocusTopic, ctxResp2.FocusTopic)
 	}
+
+	// 6. Test Custom Instructions in UpdateGoals
+	customInstr := "Explain strictly in comprehensive paragraphs with diagrams and real-world examples."
+	upCustom, err := svc.UpdateGoals(ctx, "test-user-1", dto.UpdateCognitiveGoalRequest{
+		CustomInstructions: &customInstr,
+	})
+	if err != nil {
+		t.Fatalf("failed to update custom instructions: %v", err)
+	}
+	if upCustom.CustomInstructions != customInstr {
+		t.Errorf("expected custom instructions %q, got %q", customInstr, upCustom.CustomInstructions)
+	}
+}
+
+func TestExtractCanonicalConcept(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"What is cache memory?", "Cache Memory"},
+		{"Explain difference between TCP and UDP in detail", "TCP And UDP"},
+		{"kya hota hai binary search tree samjhao", "Binary Search Tree"},
+		{"Define Von Neumann architecture with diagrams", "Von Neumann Architecture"},
+		{"Photosynthesis explain karo", "Photosynthesis"},
+		{"What do you mean by deadlocks in OS?", "Deadlocks In OS"},
+		{"hi", "General Concept"},
+		{"   ", "General Concept"},
+	}
+
+	for _, tc := range tests {
+		actual := ExtractCanonicalConcept(tc.input)
+		if actual != tc.expected {
+			t.Errorf("ExtractCanonicalConcept(%q) = %q, expected %q", tc.input, actual, tc.expected)
+		}
+	}
 }

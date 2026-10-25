@@ -113,6 +113,7 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 	targetExam := req.TargetExam
 	academicLevel := req.AcademicLevel
 	weakTopics := req.WeakTopics
+	customInstructions := strings.TrimSpace(req.CustomInstructions)
 
 	if cogProfile != nil {
 		if targetExam == "" {
@@ -123,6 +124,9 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 		}
 		if len(weakTopics) == 0 {
 			weakTopics = cogProfile.WeakTopics
+		}
+		if customInstructions == "" {
+			customInstructions = strings.TrimSpace(cogProfile.CustomInstructions)
 		}
 	}
 
@@ -135,7 +139,7 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 	}
 
 	langInstruction := ai.BuildLanguageInstruction(aiLanguage)
-	systemPrompt := langInstruction + "\n\n" + buildTutorPrompt(req.Mode, req.Question, req.ContextNotes, targetExam, academicLevel, weakTopics) + "\n\n" + langInstruction
+	systemPrompt := langInstruction + "\n\n" + buildTutorPrompt(req.Mode, req.Question, req.ContextNotes, targetExam, academicLevel, weakTopics, customInstructions) + "\n\n" + langInstruction
 
 	if usesClientHistory || len(history) == 0 {
 		history = conversationTurnsToMessages(req.ConversationHistory)
@@ -145,7 +149,7 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 	// ZERO FALSE-POSITIVE RULE:
 	// If this doubt has any conversational history (from DB or client request), or is an edit/regeneration,
 	// or has custom cognitive instructions / target exam, bypass cache so we never return a stale or generic answer.
-	if len(history) > 0 || (targetExam != "" && targetExam != "General / University" && targetExam != "General Academic Preparation") {
+	if len(history) > 0 || (targetExam != "" && targetExam != "General / University" && targetExam != "General Academic Preparation") || customInstructions != "" {
 		cacheKey = ""
 	}
 
@@ -213,7 +217,7 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 				go func(uid, q string) {
 					bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 					defer cancel()
-					topic := extractTopicSnippet(q)
+					topic := ExtractCanonicalConcept(q)
 					_, _ = s.cognitiveRepo.RecordActivity(bgCtx, uid, "doubt", topic, 2)
 				}(userID, req.Question)
 			}
@@ -438,7 +442,7 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 		go func(uid, q string) {
 			bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			topic := extractTopicSnippet(q)
+			topic := ExtractCanonicalConcept(q)
 			_, _ = s.cognitiveRepo.RecordActivity(bgCtx, uid, "doubt", topic, 2)
 		}(userID, req.Question)
 	}
@@ -446,24 +450,176 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 	return resp, nil
 }
 
-func extractTopicSnippet(question string) string {
+// ExtractCanonicalConcept cleans noisy question phrases (in English and Hinglish) and returns a clean, Title-Cased concept name (max 4 words).
+func ExtractCanonicalConcept(question string) string {
 	q := strings.TrimSpace(question)
-	q = strings.TrimPrefix(q, "What is ")
-	q = strings.TrimPrefix(q, "what is ")
-	q = strings.TrimPrefix(q, "Explain ")
-	q = strings.TrimPrefix(q, "explain ")
-	q = strings.TrimPrefix(q, "How to ")
-	q = strings.TrimPrefix(q, "how to ")
-	q = strings.TrimPrefix(q, "Difference between ")
-	q = strings.TrimRight(q, "?!.")
+	if q == "" {
+		return "General Concept"
+	}
+
+	// 1. Strip punctuation at ends
+	q = strings.Trim(q, " \t\r\n`'\"?!.,:;{}()[]")
+
+	// 2. Lowercase check for conversational
+	lower := strings.ToLower(q)
+	if lower == "hi" || lower == "hello" || lower == "hey" || lower == "thanks" || lower == "thank you" || lower == "help" {
+		return "General Concept"
+	}
+
+	// Common English/Hinglish prefix phrases to strip
+	prefixes := []string{
+		"can you please explain to me ",
+		"can you please explain ",
+		"can you explain to me ",
+		"can you explain ",
+		"could you explain ",
+		"please explain to me ",
+		"please explain ",
+		"explain to me ",
+		"explain about ",
+		"explain ",
+		"what is the difference between ",
+		"what is the meaning of ",
+		"what is meant by ",
+		"what do you mean by ",
+		"what are the differences between ",
+		"difference between ",
+		"differences between ",
+		"what is ",
+		"what are ",
+		"what was ",
+		"tell me about ",
+		"give me an overview of ",
+		"give an overview of ",
+		"write a short note on ",
+		"write a note on ",
+		"write about ",
+		"describe ",
+		"define ",
+		"how does ",
+		"how do ",
+		"how to ",
+		"introduction to ",
+		"basics of ",
+		"overview of ",
+		"architecture of ",
+		"working of ",
+		"mujhe samjhao ",
+		"batao ",
+		"kya hota hai ",
+		"kya hoti hai ",
+		"kya hai ",
+	}
+
+	for {
+		matched := false
+		lowerQ := strings.ToLower(q)
+		for _, p := range prefixes {
+			if strings.HasPrefix(lowerQ, p) {
+				q = strings.TrimSpace(q[len(p):])
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			break
+		}
+	}
+
+	// Common Hinglish suffix phrases to strip
+	suffixes := []string{
+		" in detail with diagrams",
+		" in detail with diagram",
+		" in simple words",
+		" in detail",
+		" with examples",
+		" with example",
+		" with diagram",
+		" with diagrams",
+		" with code",
+		" step by step",
+		" kya hota hai",
+		" kya hoti hai",
+		" kya hai",
+		" kise kehte hain",
+		" kaise kaam karta hai",
+		" explain karo",
+		" samjhao",
+		" samjha do",
+		" batao",
+		" bataiye",
+		" ke baare me",
+		" ke bare me",
+		" ka matlab kya hai",
+	}
+
+	for {
+		matched := false
+		lowerQ := strings.ToLower(q)
+		for _, s := range suffixes {
+			if strings.HasSuffix(lowerQ, s) {
+				q = strings.TrimSpace(q[:len(q)-len(s)])
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			break
+		}
+	}
+
+	// Clean trailing punctuation again
+	q = strings.Trim(q, " \t\r\n`'\"?!.,:;{}()[]")
+
+	// Tokenize words
 	words := strings.Fields(q)
 	if len(words) == 0 {
 		return "General Concept"
 	}
-	if len(words) > 4 {
-		return strings.Join(words[:4], " ")
+
+	// Discard trailing filler words
+	fillerWords := map[string]bool{
+		"please": true, "karo": true, "batao": true, "hai": true, "hain": true, "ka": true, "ke": true, "ki": true,
 	}
-	return strings.Join(words, " ")
+	for len(words) > 0 && fillerWords[strings.ToLower(words[len(words)-1])] {
+		words = words[:len(words)-1]
+	}
+
+	if len(words) == 0 {
+		return "General Concept"
+	}
+
+	// Cap at 4 words
+	if len(words) > 4 {
+		words = words[:4]
+	}
+
+	// Title-case each word properly (e.g. "cache" -> "Cache", "tcp" -> "TCP" if all caps, etc.)
+	for i, w := range words {
+		upper := strings.ToUpper(w)
+		// Preserve technical acronyms
+		if upper == "CPU" || upper == "RAM" || upper == "ROM" || upper == "TCP" || upper == "UDP" ||
+			upper == "OS" || upper == "AI" || upper == "ML" || upper == "SQL" || upper == "API" ||
+			upper == "IP" || upper == "HTTP" || upper == "HTTPS" || upper == "DNS" || upper == "DBMS" {
+			words[i] = upper
+			continue
+		}
+		runes := []rune(strings.ToLower(w))
+		if len(runes) > 0 {
+			runes[0] = []rune(strings.ToUpper(string(runes[0])))[0]
+			words[i] = string(runes)
+		}
+	}
+
+	result := strings.Join(words, " ")
+	if result == "" {
+		return "General Concept"
+	}
+	return result
+}
+
+func extractTopicSnippet(question string) string {
+	return ExtractCanonicalConcept(question)
 }
 
 func (s *aiTutorService) generateText(ctx context.Context, apiKey, provider, modelName, systemPrompt, userQuery string, onChunk func(string)) (string, error) {
@@ -750,7 +906,7 @@ func conversationTurnsToMessages(turns []dto.ConversationTurn) []*model.ChatMess
 }
 
 func buildTutorPrompt(mode, question, contextNotes string, profileParams ...interface{}) string {
-	var targetExam, academicLevel string
+	var targetExam, academicLevel, customInstructions string
 	var weakTopics []string
 
 	if len(profileParams) > 0 {
@@ -766,6 +922,11 @@ func buildTutorPrompt(mode, question, contextNotes string, profileParams ...inte
 	if len(profileParams) > 2 {
 		if wt, ok := profileParams[2].([]string); ok {
 			weakTopics = wt
+		}
+	}
+	if len(profileParams) > 3 {
+		if ci, ok := profileParams[3].(string); ok {
+			customInstructions = strings.TrimSpace(ci)
 		}
 	}
 
@@ -795,10 +956,32 @@ func buildTutorPrompt(mode, question, contextNotes string, profileParams ...inte
 `, targetExam, academicLevel, strings.Join(weakTopics, ", "), targetExam, academicLevel, strings.Join(weakTopics, ", "))
 	}
 
-	if studentContext != "" {
-		return fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s\n\n%s", accuracyInstruction, studentContext, situationInstruction, audioPedagogyDirective, getModePrompt(mode))
+	customDirective := ""
+	if customInstructions != "" {
+		customDirective = fmt.Sprintf(`
+🚨 STUDENT'S CUSTOM TEACHING STYLE & RESPONSE DIRECTIVE (MANDATORY & HIGHEST PRIORITY):
+The student has explicitly configured the following personal instructions for how answers MUST be explained, formatted, and delivered:
+"""
+%s
+"""
+RULES FOR HONOURING STUDENT DIRECTIVE:
+1. STRICT ADHERENCE: Follow the formatting, length, tone, and structural demands given above without exception.
+2. OVERRIDE DEFAULT STYLES: If the student asks for paragraphs without bullets, DO NOT use bullets. If they ask for real-world analogies, detailed diagrams, code, or point-by-point, deliver exactly as commanded.
+3. NEVER IGNORE: This directive reflects the student's specific cognitive preference.
+`, customInstructions)
 	}
-	return fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s", accuracyInstruction, situationInstruction, audioPedagogyDirective, getModePrompt(mode))
+
+	var sections []string
+	sections = append(sections, accuracyInstruction)
+	if studentContext != "" {
+		sections = append(sections, studentContext)
+	}
+	if customDirective != "" {
+		sections = append(sections, customDirective)
+	}
+	sections = append(sections, situationInstruction, audioPedagogyDirective, getModePrompt(mode))
+
+	return strings.Join(sections, "\n\n")
 }
 
 func getModePrompt(mode string) string {

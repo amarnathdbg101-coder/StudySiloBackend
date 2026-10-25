@@ -19,17 +19,19 @@ type CognitiveProfileResponse struct {
 	ReadinessScore     int            `json:"readiness_score"`
 	RecommendedActions []string       `json:"recommended_actions"`
 	TotalDoubtsAsked   int            `json:"total_doubts_asked"`
+	CustomInstructions string         `json:"custom_instructions"`
 	LastActiveAt       time.Time      `json:"last_active_at"`
 	UpdatedAt          time.Time      `json:"updated_at"`
 }
 
 // UpdateCognitiveGoalRequest handles manual editing of exam goals or topics
 type UpdateCognitiveGoalRequest struct {
-	TargetExam       *string   `json:"target_exam" validate:"omitempty,max=250"`
-	AcademicLevel    *string   `json:"academic_level" validate:"omitempty,max=100"`
-	WeakTopics       *[]string `json:"weak_topics" validate:"omitempty"`
-	StrongTopics     *[]string `json:"strong_topics" validate:"omitempty"`
-	ExamTrapsToWatch *[]string `json:"exam_traps_to_watch" validate:"omitempty"`
+	TargetExam         *string   `json:"target_exam" validate:"omitempty,max=250"`
+	AcademicLevel      *string   `json:"academic_level" validate:"omitempty,max=100"`
+	CustomInstructions *string   `json:"custom_instructions" validate:"omitempty,max=1000"`
+	WeakTopics         *[]string `json:"weak_topics" validate:"omitempty"`
+	StrongTopics       *[]string `json:"strong_topics" validate:"omitempty"`
+	ExamTrapsToWatch   *[]string `json:"exam_traps_to_watch" validate:"omitempty"`
 }
 
 // TopicActionRequest allows promoting or demoting a topic between Weak and Mastered
