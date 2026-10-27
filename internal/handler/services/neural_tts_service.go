@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"goProjectStructure/internal/reuse/ai"
 )
 
 // NeuralTTSService coordinates studio-quality neural text-to-speech generation and disk caching.
@@ -74,14 +76,20 @@ func (s *NeuralTTSService) SynthesizeSpeech(ctx context.Context, text, persona s
 		return nil, fmt.Errorf("text cannot be empty")
 	}
 
-	voice := s.ResolveVoice(persona, trimmedText)
+	// 1. Sanitize raw LaTeX, math equations, scientific notation, and markdown into natural human prose
+	cleanText := ai.GenerateSpokenTranscript(trimmedText)
+	if cleanText == "" {
+		cleanText = trimmedText
+	}
 
-	// 1. Calculate deterministic MD5 hash for instant disk caching
-	hash := md5.Sum([]byte(trimmedText + "_" + voice))
+	voice := s.ResolveVoice(persona, cleanText)
+
+	// 2. Calculate deterministic MD5 hash for instant disk caching
+	hash := md5.Sum([]byte(cleanText + "_" + voice))
 	fileName := hex.EncodeToString(hash[:]) + ".mp3"
 	filePath := filepath.Join(s.cacheDir, fileName)
 
-	// 2. ⚡ Fast Cache Hit Check (Sub-millisecond latency)
+	// 3. ⚡ Fast Cache Hit Check (Sub-millisecond latency)
 	s.mu.RLock()
 	if info, err := os.Stat(filePath); err == nil && info.Size() > 0 {
 		data, err := os.ReadFile(filePath)
@@ -93,8 +101,8 @@ func (s *NeuralTTSService) SynthesizeSpeech(ctx context.Context, text, persona s
 		s.mu.RUnlock()
 	}
 
-	// 3. Resolve executable command (edge-tts CLI or python -m edge_tts)
-	cmd, err := s.buildSynthesizeCommand(ctx, trimmedText, voice, filePath)
+	// 4. Resolve executable command (edge-tts CLI or python -m edge_tts)
+	cmd, err := s.buildSynthesizeCommand(ctx, cleanText, voice, filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build synthesis command: %w", err)
 	}

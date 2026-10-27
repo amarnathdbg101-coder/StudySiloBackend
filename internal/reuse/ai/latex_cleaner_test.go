@@ -72,6 +72,24 @@ func TestGenerateSpokenTranscript(t *testing.T) {
 			contains: []string{"Step 1.", "with respect to", "for example", "meters per second squared"},
 			notContain: []string{"w.r.t.", "e.g.", "m/s^2", "$"},
 		},
+		{
+			name:     "Quadratic formula with nested sqrt in fraction and text macro",
+			input:    `The roots are $$x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}$$ with speed $v = 10\text{ m/s}$`,
+			contains: []string{"divided by 2a", "square root of", "b squared", "plus or minus", "10 meters per second"},
+			notContain: []string{"frac", "text", `\frac`, `\sqrt`, `\text`, "$", `\`},
+		},
+		{
+			name:     "Markdown blockquote and emoji translation",
+			input:    "> 💡 **Pro Tip:** Remember that $v_f = v_i + at$\n> ⚠️ Watch out for units!",
+			contains: []string{"Pro tip:", "v final = v initial + at", "Watch out, exam trap warning:"},
+			notContain: []string{">", "💡", "⚠️", "v_f", "v_i"},
+		},
+		{
+			name:     "LaTeX environments and chemistry reactions",
+			input:    "\\begin{aligned} CaCO_3(s) \\xrightarrow{\\Delta} CaO(s) + CO_2(g) \\end{aligned}",
+			contains: []string{"solid", "reacts under heat to form", "carbon dioxide, C O 2", "gas"},
+			notContain: []string{"begin", "aligned", "end", `\xrightarrow`, `\Delta`},
+		},
 	}
 
 	for _, tt := range tests {
