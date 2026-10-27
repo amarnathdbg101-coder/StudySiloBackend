@@ -91,6 +91,7 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 	academicService := services.NewAcademicService(courseRepo, folderRepo, noteRepo)
 	syncService := services.NewSyncService(syncRepo)
 	cognitiveService := services.NewCognitiveService(cognitiveRepo, chatRepo, aiOrchestrator, logger)
+	neuralTTSService := services.NewNeuralTTSService("uploads/tts_cache")
 
 	// 5. Domain Controllers
 	authCtrl := controller.NewAuthController(authService)
@@ -101,9 +102,14 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 	academicCtrl := controller.NewAcademicController(academicService)
 	syncCtrl := controller.NewSyncController(syncService)
 	exportCtrl := controller.NewExportController(pdfExportService)
+	ttsCtrl := controller.NewTTSController(neuralTTSService)
 
 	// 6. API v1 Pure AI Routes
 	r.Route("/api/v1", func(r chi.Router) {
+		// Studio Neural TTS Endpoint (100% Free Lifetime Real Voice)
+		r.Route("/tts", func(r chi.Router) {
+			r.Post("/synthesize", ttsCtrl.Synthesize)
+		})
 		// Public Auth routes
 		r.Route("/auth", func(r chi.Router) {
 			r.With(middleware.AuthRateLimiter.Middleware()).Post("/register", authCtrl.Register)
