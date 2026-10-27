@@ -27,18 +27,26 @@ type SynthesizeRequest struct {
 	Persona string `json:"persona"`
 }
 
-// Synthesize handles POST /api/v1/tts/synthesize and streams studio-grade MP3 audio bytes.
+// Synthesize handles GET and POST /api/v1/tts/synthesize and streams studio-grade MP3 audio bytes.
 func (c *TTSController) Synthesize(w http.ResponseWriter, r *http.Request) {
-	// Enforce 1MB max body size to protect against abusive payloads
-	r.Body = http.MaxBytesReader(w, r.Body, 1024*1024)
+	var text, persona string
 
-	var req SynthesizeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		reuse.Error(w, http.StatusBadRequest, "Invalid JSON payload in request body")
-		return
+	if r.Method == http.MethodGet {
+		text = r.URL.Query().Get("text")
+		persona = r.URL.Query().Get("persona")
+	} else {
+		// Enforce 1MB max body size to protect against abusive payloads
+		r.Body = http.MaxBytesReader(w, r.Body, 1024*1024)
+		var req SynthesizeRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			reuse.Error(w, http.StatusBadRequest, "Invalid JSON payload in request body")
+			return
+		}
+		text = req.Text
+		persona = req.Persona
 	}
 
-	trimmedText := strings.TrimSpace(req.Text)
+	trimmedText := strings.TrimSpace(text)
 	if trimmedText == "" {
 		reuse.Error(w, http.StatusBadRequest, "Field 'text' cannot be empty")
 		return
@@ -49,7 +57,7 @@ func (c *TTSController) Synthesize(w http.ResponseWriter, r *http.Request) {
 		trimmedText = trimmedText[:1500]
 	}
 
-	audioBytes, err := c.ttsService.SynthesizeSpeech(r.Context(), trimmedText, req.Persona)
+	audioBytes, err := c.ttsService.SynthesizeSpeech(r.Context(), trimmedText, persona)
 	if err != nil {
 		reuse.Error(w, http.StatusInternalServerError, fmt.Sprintf("Speech synthesis error: %v", err))
 		return

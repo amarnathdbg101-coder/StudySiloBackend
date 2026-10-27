@@ -109,6 +109,7 @@ func RouteSetup(db *pgxpool.Pool, logger *zap.Logger) *chi.Mux {
 		// Studio Neural TTS Endpoint (100% Free Lifetime Real Voice)
 		r.Route("/tts", func(r chi.Router) {
 			r.Post("/synthesize", ttsCtrl.Synthesize)
+			r.Get("/synthesize", ttsCtrl.Synthesize)
 		})
 		// Public Auth routes
 		r.Route("/auth", func(r chi.Router) {
