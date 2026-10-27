@@ -52,9 +52,9 @@ func (c *TTSController) Synthesize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Limit single chunk to 1,500 characters for optimal prosody and latency
-	if len(trimmedText) > 1500 {
-		trimmedText = trimmedText[:1500]
+	// Limit single audio synthesis track to 4,500 characters (Audible / ChatGPT standard)
+	if len(trimmedText) > 4500 {
+		trimmedText = trimmedText[:4500]
 	}
 
 	audioBytes, err := c.ttsService.SynthesizeSpeech(r.Context(), trimmedText, persona)
