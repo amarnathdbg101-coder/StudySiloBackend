@@ -556,3 +556,25 @@ func GenerateSpokenTranscript(text string) string {
 	s = strings.ReplaceAll(s, " . ", ". ")
 	return strings.TrimSpace(s)
 }
+
+// ExtractSpokenSummary extracts a crisp, natural 20-30 second spoken summary (1-3 sentences, max 350 chars)
+// suitable for instant, zero-lag audio note synthesis on mobile without choking the server.
+func ExtractSpokenSummary(text string) string {
+	full := GenerateSpokenTranscript(text)
+	if full == "" {
+		return ""
+	}
+
+	if len(full) <= 350 {
+		return full
+	}
+
+	// Truncate at sentence boundary within the first 350 characters
+	sub := full[:350]
+	lastPeriod := strings.LastIndexAny(sub, ".!?")
+	if lastPeriod > 100 {
+		return strings.TrimSpace(sub[:lastPeriod+1])
+	}
+
+	return strings.TrimSpace(sub) + "..."
+}

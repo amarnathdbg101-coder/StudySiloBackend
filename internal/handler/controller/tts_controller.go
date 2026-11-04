@@ -23,17 +23,20 @@ func NewTTSController(ttsService *services.NeuralTTSService) *TTSController {
 
 // SynthesizeRequest payload for speech generation.
 type SynthesizeRequest struct {
-	Text    string `json:"text"`
-	Persona string `json:"persona"`
+	Text      string `json:"text"`
+	Persona   string `json:"persona"`
+	IsSummary bool   `json:"is_summary,omitempty"`
 }
 
 // Synthesize handles GET and POST /api/v1/tts/synthesize and streams studio-grade MP3 audio bytes.
 func (c *TTSController) Synthesize(w http.ResponseWriter, r *http.Request) {
 	var text, persona string
+	var isSummary bool
 
 	if r.Method == http.MethodGet {
 		text = r.URL.Query().Get("text")
 		persona = r.URL.Query().Get("persona")
+		isSummary = r.URL.Query().Get("summary") == "true" || r.URL.Query().Get("is_summary") == "true"
 	} else {
 		// Enforce 1MB max body size to protect against abusive payloads
 		r.Body = http.MaxBytesReader(w, r.Body, 1024*1024)
@@ -44,6 +47,7 @@ func (c *TTSController) Synthesize(w http.ResponseWriter, r *http.Request) {
 		}
 		text = req.Text
 		persona = req.Persona
+		isSummary = req.IsSummary
 	}
 
 	trimmedText := strings.TrimSpace(text)
@@ -52,9 +56,14 @@ func (c *TTSController) Synthesize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Limit single audio synthesis track to 4,500 characters (Audible / ChatGPT standard)
-	if len(trimmedText) > 4500 {
-		trimmedText = trimmedText[:4500]
+	// If requested as an audio summary, extract a crisp 20-30s note (~300 chars)
+	if isSummary {
+		trimmedText = ai.ExtractSpokenSummary(trimmedText)
+	}
+
+	// Limit single audio synthesis track to 1,500 characters to protect server CPU
+	if len(trimmedText) > 1500 {
+		trimmedText = trimmedText[:1500]
 	}
 
 	audioBytes, err := c.ttsService.SynthesizeSpeech(r.Context(), trimmedText, persona)

@@ -22,6 +22,7 @@ import (
 type NeuralTTSService struct {
 	cacheDir string
 	mu       sync.RWMutex
+	sem      chan struct{} // limits concurrent edge-tts subprocesses to protect server CPU
 }
 
 // NewNeuralTTSService initializes the neural speech service and ensures the cache directory exists.
@@ -33,6 +34,8 @@ func NewNeuralTTSService(cacheDir string) *NeuralTTSService {
 
 	return &NeuralTTSService{
 		cacheDir: cacheDir,
+		// Max 3 concurrent speech synthesis processes at any time
+		sem: make(chan struct{}, 3),
 	}
 }
 
@@ -82,6 +85,11 @@ func (s *NeuralTTSService) SynthesizeSpeech(ctx context.Context, text, persona s
 		cleanText = trimmedText
 	}
 
+	// Limit single audio synthesis track to 1,500 characters to prevent server CPU choke
+	if len(cleanText) > 1500 {
+		cleanText = cleanText[:1500]
+	}
+
 	voice := s.ResolveVoice(persona, cleanText)
 
 	// 2. Calculate deterministic MD5 hash for instant disk caching
@@ -101,18 +109,43 @@ func (s *NeuralTTSService) SynthesizeSpeech(ctx context.Context, text, persona s
 		s.mu.RUnlock()
 	}
 
-	// 4. Resolve executable command (edge-tts CLI or python -m edge_tts)
-	cmd, err := s.buildSynthesizeCommand(ctx, cleanText, voice, filePath)
+	// 4. Concurrency Limiter (Semaphore): Allow max 3 concurrent edge-tts subprocesses
+	select {
+	case s.sem <- struct{}{}:
+		defer func() { <-s.sem }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(8 * time.Second):
+		return nil, fmt.Errorf("server audio synthesizer busy, please retry shortly")
+	}
+
+	// Double-check cache in case another goroutine generated this file while waiting for semaphore
+	s.mu.RLock()
+	if info, err := os.Stat(filePath); err == nil && info.Size() > 0 {
+		data, err := os.ReadFile(filePath)
+		s.mu.RUnlock()
+		if err == nil && len(data) > 0 {
+			return data, nil
+		}
+	} else {
+		s.mu.RUnlock()
+	}
+
+	// 5. Build command with strict request context cancellation
+	cmd, cancel, err := s.buildSynthesizeCommand(ctx, cleanText, voice, filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build synthesis command: %w", err)
 	}
+	defer cancel()
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		// Clean up broken/empty file if synthesis failed or client canceled
+		_ = os.Remove(filePath)
 		return nil, fmt.Errorf("neural tts synthesis failed: %v (output: %s)", err, strings.TrimSpace(string(output)))
 	}
 
-	// 4. Safely read and return the synthesized audio bytes
+	// 6. Safely read and return the synthesized audio bytes
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -122,6 +155,7 @@ func (s *NeuralTTSService) SynthesizeSpeech(ctx context.Context, text, persona s
 	}
 
 	if len(audioBytes) == 0 {
+		_ = os.Remove(filePath)
 		return nil, fmt.Errorf("synthesized audio file is empty")
 	}
 
@@ -129,31 +163,31 @@ func (s *NeuralTTSService) SynthesizeSpeech(ctx context.Context, text, persona s
 }
 
 // buildSynthesizeCommand locates the edge-tts runner across Windows, Linux, and Docker environments.
-func (s *NeuralTTSService) buildSynthesizeCommand(ctx context.Context, text, voice, outputPath string) (*exec.Cmd, error) {
-	// Set 25-second timeout on speech generation
-	cCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
-	_ = cancel // Handled by context cancellation
+func (s *NeuralTTSService) buildSynthesizeCommand(ctx context.Context, text, voice, outputPath string) (*exec.Cmd, context.CancelFunc, error) {
+	// Set 20-second timeout on speech generation linked to caller context
+	cCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 
 	// Candidate 1: Direct edge-tts binary in system PATH
 	if p, err := exec.LookPath("edge-tts"); err == nil {
-		return exec.CommandContext(cCtx, p, "--voice", voice, "--text", text, "--write-media", outputPath), nil
+		return exec.CommandContext(cCtx, p, "--voice", voice, "--text", text, "--write-media", outputPath), cancel, nil
 	}
 
 	// Candidate 2: Common Windows AppData Python Scripts directory
 	winScriptsPath := filepath.Join(os.Getenv("APPDATA"), "Python", "Python314", "Scripts", "edge-tts.exe")
 	if _, err := os.Stat(winScriptsPath); err == nil {
-		return exec.CommandContext(cCtx, winScriptsPath, "--voice", voice, "--text", text, "--write-media", outputPath), nil
+		return exec.CommandContext(cCtx, winScriptsPath, "--voice", voice, "--text", text, "--write-media", outputPath), cancel, nil
 	}
 
 	// Candidate 3: Python module invocation (python -m edge_tts)
 	if pythonBin, err := exec.LookPath("python"); err == nil {
-		return exec.CommandContext(cCtx, pythonBin, "-m", "edge_tts", "--voice", voice, "--text", text, "--write-media", outputPath), nil
+		return exec.CommandContext(cCtx, pythonBin, "-m", "edge_tts", "--voice", voice, "--text", text, "--write-media", outputPath), cancel, nil
 	}
 
 	// Candidate 4: Python3 module invocation (python3 -m edge_tts for Linux/Docker)
 	if python3Bin, err := exec.LookPath("python3"); err == nil {
-		return exec.CommandContext(cCtx, python3Bin, "-m", "edge_tts", "--voice", voice, "--text", text, "--write-media", outputPath), nil
+		return exec.CommandContext(cCtx, python3Bin, "-m", "edge_tts", "--voice", voice, "--text", text, "--write-media", outputPath), cancel, nil
 	}
 
-	return nil, fmt.Errorf("edge-tts runner not found; please install with 'pip install edge-tts'")
+	cancel()
+	return nil, nil, fmt.Errorf("edge-tts runner not found; please install with 'pip install edge-tts'")
 }
