@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,9 +39,25 @@ func ConnectDB(databaseURL string) (*pgxpool.Pool, error) {
 		config.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
 	}
 
-	// Production pool tuning for low latency & high concurrency
-	config.MaxConns = 50
-	config.MinConns = 10
+	// Production pool tuning:
+	// Safe default maxConns (25) protects against Supabase/PostgreSQL connection exhaustion.
+	// Allows dynamic scaling via DATABASE_MAX_CONNS and DATABASE_MIN_CONNS env.
+	maxConns := int32(25)
+	if envMax := os.Getenv("DATABASE_MAX_CONNS"); envMax != "" {
+		if val, err := strconv.Atoi(envMax); err == nil && val > 0 {
+			maxConns = int32(val)
+		}
+	}
+
+	minConns := int32(5)
+	if envMin := os.Getenv("DATABASE_MIN_CONNS"); envMin != "" {
+		if val, err := strconv.Atoi(envMin); err == nil && val >= 0 {
+			minConns = int32(val)
+		}
+	}
+
+	config.MaxConns = maxConns
+	config.MinConns = minConns
 	config.MaxConnLifetime = 1 * time.Hour
 	config.MaxConnIdleTime = 15 * time.Minute
 	config.HealthCheckPeriod = 30 * time.Second
@@ -53,6 +71,6 @@ func ConnectDB(databaseURL string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("unable to ping database at host=%s: %w", config.ConnConfig.Host, err)
 	}
 
-	log.Println("database connection pool initialized successfully!")
+	log.Printf("database connection pool initialized successfully! (max_conns=%d, min_conns=%d)", maxConns, minConns)
 	return pool, nil
 }

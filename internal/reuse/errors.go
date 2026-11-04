@@ -2,6 +2,7 @@ package reuse
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 )
 
@@ -29,6 +30,8 @@ func Created(w http.ResponseWriter, msg string, data interface{}) {
 
 func Error(w http.ResponseWriter, status int, err string) {
 	if status >= http.StatusInternalServerError {
+		// Log actual root cause to server logs before masking for security
+		log.Printf("[SERVER_ERROR %d] %s", status, err)
 		err = http.StatusText(status)
 		if err == "" {
 			err = "Internal Server Error"
@@ -39,10 +42,13 @@ func Error(w http.ResponseWriter, status int, err string) {
 
 // ErrorWithCode sends a standardized JSON error response with machine-readable error code
 func ErrorWithCode(w http.ResponseWriter, status int, code, err string) {
-	if status >= http.StatusInternalServerError && err == "" {
-		err = http.StatusText(status)
+	if status >= http.StatusInternalServerError {
+		log.Printf("[SERVER_ERROR %d] code=%s details=%s", status, code, err)
 		if err == "" {
-			err = "Internal Server Error"
+			err = http.StatusText(status)
+			if err == "" {
+				err = "Internal Server Error"
+			}
 		}
 	}
 	JSON(w, status, Response{Success: false, Error: err, ErrorCode: code})

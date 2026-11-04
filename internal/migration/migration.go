@@ -3,6 +3,8 @@ package migration
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -11,11 +13,35 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// RunAutoMigrations executes all pending migrations from internal/migration folder.
+// findMigrationPath dynamically locates the migration folder regardless of whether
+// the binary is executed from project root, cmd/api, or as a systemd service.
+func findMigrationPath() (string, error) {
+	candidates := []string{
+		"internal/migration",
+		"../../internal/migration",
+		"../internal/migration",
+		"Backend/internal/migration",
+	}
+
+	for _, c := range candidates {
+		checkFile := filepath.Join(c, "000001_create_users_table.up.sql")
+		if info, err := os.Stat(checkFile); err == nil && !info.IsDir() {
+			return filepath.ToSlash(c), nil
+		}
+	}
+	return "", fmt.Errorf("migration directory not found across search paths: %v", candidates)
+}
+
+// RunAutoMigrations executes all pending migrations from the discovered migration folder.
 func RunAutoMigrations(dbURL string) error {
-	m, err := migrate.New("file://internal/migration", dbURL)
+	path, err := findMigrationPath()
 	if err != nil {
-		return fmt.Errorf("failed to create migration driver: %w", err)
+		return fmt.Errorf("failed to locate migration path: %w", err)
+	}
+
+	m, err := migrate.New("file://"+path, dbURL)
+	if err != nil {
+		return fmt.Errorf("failed to create migration driver at %s: %w", path, err)
 	}
 
 	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
