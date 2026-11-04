@@ -18,9 +18,9 @@ func TestNeuralTTSService_VoiceResolution(t *testing.T) {
 	}{
 		{"priya", "Namaste", "hi-IN-SwaraNeural"},
 		{"academic", "Doubt", "hi-IN-SwaraNeural"},
-		{"aryan", "Complex question", "hi-IN-MadhurNeural"},
-		{"professor", "PYQ question", "hi-IN-MadhurNeural"},
-		{"mentor", "English explanation", "en-IN-NeerjaNeural"},
+		{"aryan", "Complex question", "hi-IN-SwaraNeural"},
+		{"professor", "PYQ question", "hi-IN-SwaraNeural"},
+		{"mentor", "English explanation", "hi-IN-SwaraNeural"},
 		{"mentor", "नमस्ते", "hi-IN-SwaraNeural"},
 		{"unknown", "Random", "hi-IN-SwaraNeural"},
 	}

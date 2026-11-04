@@ -39,26 +39,10 @@ func NewNeuralTTSService(cacheDir string) *NeuralTTSService {
 	}
 }
 
-// ResolveVoice maps academic personas and language requirements to the optimal neural voice.
-// Priya: Sweet, warm, encouraging Indian female teacher (hi-IN-SwaraNeural)
-// Aryan: Deep, articulate, calm Indian male professor (hi-IN-MadhurNeural)
-// Mentor: Bilingual peer tutor (en-IN-NeerjaNeural / hi-IN-SwaraNeural)
+// ResolveVoice returns the studio high-fidelity Indian female teacher voice (hi-IN-SwaraNeural).
+// Only the female voice is active across StudySilo to ensure consistent, sweet, and articulate teacher cadence.
 func (s *NeuralTTSService) ResolveVoice(persona string, text string) string {
-	clean := strings.ToLower(strings.TrimSpace(persona))
-	switch clean {
-	case "aryan", "professor", "pyq", "pyqstrategist", "derivation":
-		return "hi-IN-MadhurNeural"
-	case "mentor", "socratic":
-		// If text contains Devanagari script, use Hindi voice; else Indian English
-		if containsDevanagari(text) {
-			return "hi-IN-SwaraNeural"
-		}
-		return "en-IN-NeerjaNeural"
-	case "priya", "feynman", "academic", "traphunter":
-		fallthrough
-	default:
-		return "hi-IN-SwaraNeural"
-	}
+	return "hi-IN-SwaraNeural"
 }
 
 // containsDevanagari checks if the text contains Hindi Unicode characters (U+0900 to U+097F).
@@ -169,23 +153,23 @@ func (s *NeuralTTSService) buildSynthesizeCommand(ctx context.Context, text, voi
 
 	// Candidate 1: Direct edge-tts binary in system PATH
 	if p, err := exec.LookPath("edge-tts"); err == nil {
-		return exec.CommandContext(cCtx, p, "--voice", voice, "--text", text, "--write-media", outputPath), cancel, nil
+		return exec.CommandContext(cCtx, p, "--voice", voice, "--rate=+15%", "--text", text, "--write-media", outputPath), cancel, nil
 	}
 
 	// Candidate 2: Common Windows AppData Python Scripts directory
 	winScriptsPath := filepath.Join(os.Getenv("APPDATA"), "Python", "Python314", "Scripts", "edge-tts.exe")
 	if _, err := os.Stat(winScriptsPath); err == nil {
-		return exec.CommandContext(cCtx, winScriptsPath, "--voice", voice, "--text", text, "--write-media", outputPath), cancel, nil
+		return exec.CommandContext(cCtx, winScriptsPath, "--voice", voice, "--rate=+15%", "--text", text, "--write-media", outputPath), cancel, nil
 	}
 
 	// Candidate 3: Python module invocation (python -m edge_tts)
 	if pythonBin, err := exec.LookPath("python"); err == nil {
-		return exec.CommandContext(cCtx, pythonBin, "-m", "edge_tts", "--voice", voice, "--text", text, "--write-media", outputPath), cancel, nil
+		return exec.CommandContext(cCtx, pythonBin, "-m", "edge_tts", "--voice", voice, "--rate=+15%", "--text", text, "--write-media", outputPath), cancel, nil
 	}
 
 	// Candidate 4: Python3 module invocation (python3 -m edge_tts for Linux/Docker)
 	if python3Bin, err := exec.LookPath("python3"); err == nil {
-		return exec.CommandContext(cCtx, python3Bin, "-m", "edge_tts", "--voice", voice, "--text", text, "--write-media", outputPath), cancel, nil
+		return exec.CommandContext(cCtx, python3Bin, "-m", "edge_tts", "--voice", voice, "--rate=+15%", "--text", text, "--write-media", outputPath), cancel, nil
 	}
 
 	cancel()

@@ -304,24 +304,24 @@ func GenerateSpokenTranscript(text string) string {
 	// 1. Remove code blocks & JSON diagrams (never read syntax soup)
 	s = codeBlockRx.ReplaceAllString(s, " Here is the code implementation. ")
 
-	// 2. Pedagogical pauses & Step boundaries (natural teacher cadence)
-	s = stepPauseRx.ReplaceAllString(s, ". Step $1. ")
+	// 2. Natural teacher cadence (smooth transitions without duplicate periods)
+	s = stepPauseRx.ReplaceAllString(s, " Step $1. ")
 	s = pedagogicalRx.ReplaceAllString(s, "$1, ")
 
 	// 3. Strip Markdown Blockquotes (never vocalize '>' as 'greater than')
 	s = blockquoteRx.ReplaceAllString(s, "")
 
-	// 4. Translate Visual Study Emojis to warm, polite teacher cues
-	s = strings.ReplaceAll(s, "💡", ". Pro tip: ")
-	s = strings.ReplaceAll(s, "⚠️", ". Watch out, exam trap warning: ")
-	s = strings.ReplaceAll(s, "🎯", ". Key exam takeaway: ")
-	s = strings.ReplaceAll(s, "🧠", ". Intuition: ")
-	s = strings.ReplaceAll(s, "📌", ". Key concept: ")
-	s = strings.ReplaceAll(s, "✅", ". Correct: ")
-	s = strings.ReplaceAll(s, "❌", ". Misconception: ")
-	s = strings.ReplaceAll(s, "🔥", ". High yield topic: ")
-	s = strings.ReplaceAll(s, "🚀", ". Fast shortcut: ")
-	s = strings.ReplaceAll(s, "⭐", ". Important: ")
+	// 4. Translate Visual Study Emojis to warm, conversational teacher cues
+	s = strings.ReplaceAll(s, "💡", " Pro tip: ")
+	s = strings.ReplaceAll(s, "⚠️", " Watch out, exam trap warning: ")
+	s = strings.ReplaceAll(s, "🎯", " Key exam takeaway: ")
+	s = strings.ReplaceAll(s, "🧠", " Intuition: ")
+	s = strings.ReplaceAll(s, "📌", " Key concept: ")
+	s = strings.ReplaceAll(s, "✅", " Correct: ")
+	s = strings.ReplaceAll(s, "❌", " Misconception: ")
+	s = strings.ReplaceAll(s, "🔥", " High yield topic: ")
+	s = strings.ReplaceAll(s, "🚀", " Fast shortcut: ")
+	s = strings.ReplaceAll(s, "⭐", " Important: ")
 	s = strings.ReplaceAll(s, "✨", " ")
 
 	// 5. Academic Abbreviations
@@ -529,9 +529,9 @@ func GenerateSpokenTranscript(text string) string {
 		}
 	})
 
-	// 19. Markdown syntax stripping
+	// 19. Markdown syntax stripping (fluent transitions without repeated dot pauses)
 	s = headerRx.ReplaceAllString(s, ". ")
-	s = bulletRx.ReplaceAllString(s, ". ")
+	s = bulletRx.ReplaceAllString(s, ", ")
 	s = numberedListRx.ReplaceAllString(s, ". Step $1. ")
 	s = boldRx.ReplaceAllString(s, " $1 ")
 	s = italicRx.ReplaceAllString(s, " $1 ")
@@ -551,9 +551,12 @@ func GenerateSpokenTranscript(text string) string {
 	s = strings.ReplaceAll(s, `^`, " to the power of ")
 	s = strings.ReplaceAll(s, `_`, " ")
 
-	// 21. Clean redundant spaces and newlines
+	// 21. Clean redundant spaces, eliminate double/triple pause full-stops
 	s = multipleSpacesRx.ReplaceAllString(s, " ")
-	s = strings.ReplaceAll(s, " . ", ". ")
+	s = strings.ReplaceAll(s, " .", ".")
+	s = strings.ReplaceAll(s, " ,", ",")
+	s = regexp.MustCompile(`\s*(\.\s*)+`).ReplaceAllString(s, ". ")
+	s = regexp.MustCompile(`\s*(,\s*)+`).ReplaceAllString(s, ", ")
 	return strings.TrimSpace(s)
 }
 
