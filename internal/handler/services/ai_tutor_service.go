@@ -247,39 +247,10 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 	var answerText string
 	var err error
 	var uploadedImageURL string
-	var uploadedAudioURL string
 	var r2UploadWg sync.WaitGroup
 
-	// 1. If voice audio recording is provided, run multimodal audio pipeline
-	if req.AudioBase64 != "" {
-		audioBytes, decErr := base64.StdEncoding.DecodeString(req.AudioBase64)
-		if decErr == nil && len(audioBytes) > 0 {
-			mime := req.AudioMimeType
-			if mime == "" {
-				mime = "audio/m4a"
-			}
-			// ⚡ Go Concurrency: Upload audio to Cloudflare R2 concurrently with AI generation
-			r2UploadWg.Add(1)
-			go func(data []byte, contentType string) {
-				defer r2UploadWg.Done()
-				r2URL, uploadErr := reuse.UploadBytesToR2(data, contentType, "chat_audio")
-				if uploadErr != nil {
-					log.Printf("Failed to upload audio doubt to Cloudflare R2: %v", uploadErr)
-					return
-				}
-				uploadedAudioURL = r2URL
-			}(audioBytes, mime)
-
-			audioPrompt := userQuery
-			if audioPrompt == "" || strings.Contains(audioPrompt, "Attached spoken doubt") || strings.Contains(audioPrompt, "Voice Question") {
-				audioPrompt = "The student has recorded a spoken voice note asking an academic doubt. Please listen carefully to the student's speech, transcribe and address the core question, and deliver a comprehensive step-by-step masterclass explanation with LaTeX formulas and common exam traps."
-			}
-			answerText, err = s.orchestrator.GenerateVisionWithCustomKey(ctx, req.APIKey, provider, modelName, systemPrompt, audioPrompt, audioBytes, mime)
-		} else {
-			answerText, err = s.generateText(ctx, req.APIKey, provider, modelName, systemPrompt, userQuery, onChunk)
-		}
-	} else if req.ImageBase64 != "" {
-		// 2. If handwritten image is provided, run vision multimodal pipeline
+	if req.ImageBase64 != "" {
+		// 1. If handwritten image is provided, run vision multimodal pipeline
 		imgBytes, decErr := base64.StdEncoding.DecodeString(req.ImageBase64)
 		if decErr == nil && len(imgBytes) > 0 {
 			mime := req.ImageMimeType
@@ -406,7 +377,6 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 				Role:      "user",
 				Content:   req.Question,
 				ImageURL:  uploadedImageURL,
-				AudioURL:  uploadedAudioURL,
 			})
 		}
 		assistantMessage := &model.ChatMessage{
