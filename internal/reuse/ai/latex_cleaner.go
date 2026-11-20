@@ -268,7 +268,7 @@ func replaceBalancedSqrt(s string) string {
 }
 
 // unwrapMacros strips LaTeX packaging macros like \text{...}, \mathrm{...}, \mathbf{...}, \boxed{...}, etc.,
-// keeping only their clean inner words so Edge-TTS never pronounces "text", "mathrm", "boxed", etc.
+// keeping only their clean inner words so display renderers never show raw LaTeX syntax tags.
 func unwrapMacros(s string) string {
 	macros := []string{
 		`\text{`, `\textbf{`, `\textit{`, `\mathrm{`, `\mathbf{`, `\mathit{`,

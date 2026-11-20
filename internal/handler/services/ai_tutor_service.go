@@ -334,24 +334,8 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 	// Follow-up chips removed permanently as requested for clean, point-by-point AI response
 	followUpChips := []string{}
 
-	// ⚡ Go Concurrency: Run spoken transcript generation and AST markdown parsing in parallel
-	// Utilizes multiple CPU cores to cut post-processing latency by 50%
-	var spokenTranscript string
-	var parsedBlocks []dto.AiBlockDto
-	var postWg sync.WaitGroup
-	postWg.Add(2)
-
-	go func() {
-		defer postWg.Done()
-		spokenTranscript = ai.GenerateSpokenTranscript(answerText)
-	}()
-
-	go func() {
-		defer postWg.Done()
-		parsedBlocks = ai.ParseMarkdownBlocks(answerText)
-	}()
-
-	postWg.Wait()
+	// AST markdown parsing into structured pedagogical blocks
+	parsedBlocks := ai.ParseMarkdownBlocks(answerText)
 
 	resp := &dto.DoubtResponse{
 		Question:            req.Question,
@@ -361,7 +345,7 @@ func (s *aiTutorService) solveDoubt(ctx context.Context, userID string, req dto.
 		FollowUpChips:       followUpChips,
 		ActiveProvider:      provider,
 		ActiveModel:         modelName,
-		SpokenTranscript:    spokenTranscript,
+		SpokenTranscript:    "",
 		Blocks:              parsedBlocks,
 		UserMessageImageURL: uploadedImageURL,
 	}
@@ -938,12 +922,12 @@ func buildTutorPrompt(mode, question, contextNotes string, profileParams ...inte
 - Do not invent facts, formulas, calculations, exam statistics, or citations. State uncertainty and ask for missing information when needed.
 - Check that every explanation, formula, and example is relevant to the exact subject asked.`
 
-	const audioPedagogyDirective = `
-🎙️ AUDIO-PEDAGOGY & CLEAN KaTeX DIRECTIVE (Mandatory for Voice & Visual Harmony):
-- SPOKEN CADENCE: Frame explanations with clear, verbal transitions ("Step 1: First, we isolate x...", "Intuitively, this means...", "As a result, we observe that...").
+	const katexPedagogyDirective = `
+📐 CLEAN KaTeX & PEDAGOGY DIRECTIVE:
+- STEP-BY-STEP CADENCE: Frame explanations with clear, logical transitions ("Step 1: First, we isolate x...", "Intuitively, this means...", "As a result, we observe that...").
 - STANDARD KaTeX NOTATION: Use clean, standard single-backslash KaTeX formatting for math and science ($$ ... $$ for standalone formulas, $ ... $ for inline variables). Never double-escape backslashes (write \frac, not \\frac).
-- EXPLICIT SI UNITS & CONDITIONS: In physics and chemistry, always explicitly state standard SI units (e.g., m/s^2, J, kg) and physical states (e.g., (s), (aq), (g)) so both visual rendering and voice synthesizers deliver crystal-clear pedagogical explanations.
-- NATURAL BREATHING HEADERS: Keep headings and bullet items crisp and complete without dangling syntax soup.`
+- EXPLICIT SI UNITS & CONDITIONS: In physics and chemistry, always explicitly state standard SI units (e.g., m/s^2, J, kg) and physical states (e.g., (s), (aq), (g)) for crystal-clear masterclass explanations.
+- CRISP HEADERS: Keep headings and bullet items crisp and complete without dangling syntax soup.`
 
 	studentContext := ""
 	if targetExam != "" || academicLevel != "" || len(weakTopics) > 0 {
@@ -979,7 +963,7 @@ RULES FOR HONOURING STUDENT DIRECTIVE:
 	if customDirective != "" {
 		sections = append(sections, customDirective)
 	}
-	sections = append(sections, situationInstruction, audioPedagogyDirective, getModePrompt(mode))
+	sections = append(sections, situationInstruction, katexPedagogyDirective, getModePrompt(mode))
 
 	return strings.Join(sections, "\n\n")
 }
