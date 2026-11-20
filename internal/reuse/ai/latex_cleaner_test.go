@@ -87,7 +87,7 @@ func TestGenerateSpokenTranscript(t *testing.T) {
 		{
 			name:     "LaTeX environments and chemistry reactions",
 			input:    "\\begin{aligned} CaCO_3(s) \\xrightarrow{\\Delta} CaO(s) + CO_2(g) \\end{aligned}",
-			contains: []string{"solid", "reacts under heat to form", "carbon dioxide, C O 2", "gas"},
+			contains: []string{"solid", "reacts under heat to form", "carbon dioxide", "gas"},
 			notContain: []string{"begin", "aligned", "end", `\xrightarrow`, `\Delta`},
 		},
 	}

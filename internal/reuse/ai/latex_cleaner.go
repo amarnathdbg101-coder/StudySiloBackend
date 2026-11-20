@@ -153,7 +153,7 @@ var (
 	subscriptRx   = regexp.MustCompile(`([a-zA-Z])_\{?([0-9a-zA-Z]+)\}?`)
 
 	// Physics Units
-	accelUnitRx = regexp.MustCompile(`\b(?:m/s\^?2|m/s²|m\s*s\^?-2)\b`)
+	accelUnitRx = regexp.MustCompile(`(?i)\b(?:m/s\s*\^?\s*2|m/s²|m\s*s\s*\^?-2)\b`)
 	speedUnitRx = regexp.MustCompile(`\b(?:m/s|km/h|km/hr)\b`)
 
 	// Algorithmic Big-O
@@ -217,7 +217,7 @@ func replaceBalancedFrac(s string) string {
 
 		cleanNum := replaceBalancedFrac(num)
 		cleanDen := replaceBalancedFrac(den)
-		replacement := "(" + strings.TrimSpace(cleanNum) + " divided by " + strings.TrimSpace(cleanDen) + ")"
+		replacement := " " + strings.TrimSpace(cleanNum) + " divided by " + strings.TrimSpace(cleanDen) + " "
 		s = s[:idx] + replacement + s[after2:]
 		limit--
 	}
@@ -250,11 +250,11 @@ func replaceBalancedSqrt(s string) string {
 				cleanContent := replaceBalancedSqrt(content)
 				var replacement string
 				if rootDegree == "3" || rootDegree == "cube" {
-					replacement = "cube root of (" + strings.TrimSpace(cleanContent) + ")"
+					replacement = " cube root of " + strings.TrimSpace(cleanContent) + " "
 				} else if rootDegree != "" {
-					replacement = rootDegree + " root of (" + strings.TrimSpace(cleanContent) + ")"
+					replacement = " " + rootDegree + " root of " + strings.TrimSpace(cleanContent) + " "
 				} else {
-					replacement = "square root of (" + strings.TrimSpace(cleanContent) + ")"
+					replacement = " square root of " + strings.TrimSpace(cleanContent) + " "
 				}
 				s = s[:idx] + replacement + s[afterBrace:]
 				limit--
@@ -412,35 +412,35 @@ func GenerateSpokenTranscript(text string) string {
 	s = strings.ReplaceAll(s, "(l)", " liquid ")
 	s = strings.ReplaceAll(s, "(g)", " gas ")
 
-	// Common Chemistry Compounds
-	s = strings.ReplaceAll(s, "CaCO3", "calcium carbonate, C a C O 3")
-	s = strings.ReplaceAll(s, "CaCO_3", "calcium carbonate, C a C O 3")
-	s = strings.ReplaceAll(s, "CaO", "calcium oxide, C a O")
-	s = strings.ReplaceAll(s, "NaCl", "sodium chloride, N A C L")
-	s = strings.ReplaceAll(s, "HCl", "hydrochloric acid, H C L")
-	s = strings.ReplaceAll(s, "H2SO4", "sulfuric acid, H 2 S O 4")
-	s = strings.ReplaceAll(s, "H_2SO_4", "sulfuric acid, H 2 S O 4")
-	s = strings.ReplaceAll(s, "HNO3", "nitric acid, H N O 3")
-	s = strings.ReplaceAll(s, "NaOH", "sodium hydroxide, N A O H")
-	s = strings.ReplaceAll(s, "KOH", "potassium hydroxide, K O H")
-	s = strings.ReplaceAll(s, "CH4", "methane, C H 4")
-	s = strings.ReplaceAll(s, "NH3", "ammonia, N H 3")
-	s = strings.ReplaceAll(s, "CO2", "carbon dioxide, C O 2")
-	s = strings.ReplaceAll(s, "CO_2", "carbon dioxide, C O 2")
-	s = strings.ReplaceAll(s, "H2O", "water, H 2 O")
-	s = strings.ReplaceAll(s, "H_2O", "water, H 2 O")
+	// Common Chemistry Compounds (Natural spoken names, without spelling each letter)
+	s = strings.ReplaceAll(s, "CaCO3", "calcium carbonate")
+	s = strings.ReplaceAll(s, "CaCO_3", "calcium carbonate")
+	s = strings.ReplaceAll(s, "CaO", "calcium oxide")
+	s = strings.ReplaceAll(s, "NaCl", "sodium chloride")
+	s = strings.ReplaceAll(s, "HCl", "hydrochloric acid")
+	s = strings.ReplaceAll(s, "H2SO4", "sulfuric acid")
+	s = strings.ReplaceAll(s, "H_2SO_4", "sulfuric acid")
+	s = strings.ReplaceAll(s, "HNO3", "nitric acid")
+	s = strings.ReplaceAll(s, "NaOH", "sodium hydroxide")
+	s = strings.ReplaceAll(s, "KOH", "potassium hydroxide")
+	s = strings.ReplaceAll(s, "CH4", "methane")
+	s = strings.ReplaceAll(s, "NH3", "ammonia")
+	s = strings.ReplaceAll(s, "CO2", "carbon dioxide")
+	s = strings.ReplaceAll(s, "CO_2", "carbon dioxide")
+	s = strings.ReplaceAll(s, "H2O", "water")
+	s = strings.ReplaceAll(s, "H_2O", "water")
 
-	// 14. Physics Subscript Variables
-	s = strings.ReplaceAll(s, "v_0", "v naught")
-	s = strings.ReplaceAll(s, "v_o", "v naught")
+	// 14. Physics Subscript Variables (Natural teacher phrasing)
+	s = strings.ReplaceAll(s, "v_0", "v zero")
+	s = strings.ReplaceAll(s, "v_o", "v zero")
 	s = strings.ReplaceAll(s, "v_i", "v initial")
 	s = strings.ReplaceAll(s, "v_f", "v final")
-	s = strings.ReplaceAll(s, "x_0", "x naught")
-	s = strings.ReplaceAll(s, "t_0", "t naught")
-	s = strings.ReplaceAll(s, "a_net", "a net")
-	s = strings.ReplaceAll(s, "F_net", "F net")
+	s = strings.ReplaceAll(s, "x_0", "x zero")
+	s = strings.ReplaceAll(s, "t_0", "t zero")
+	s = strings.ReplaceAll(s, "a_net", "net acceleration")
+	s = strings.ReplaceAll(s, "F_net", "net force")
 	s = strings.ReplaceAll(s, "m_total", "total mass")
-	s = subscriptRx.ReplaceAllString(s, "$1 sub $2")
+	s = subscriptRx.ReplaceAllString(s, "$1 $2")
 
 	// 15. Vectors & Unit Vectors
 	vecRegex := regexp.MustCompile(`\\vec\{?([a-zA-Z0-9]+)\}?`)
@@ -491,7 +491,7 @@ func GenerateSpokenTranscript(text string) string {
 		case "times":
 			return " times "
 		case "cdot":
-			return " dot "
+			return " times "
 		case "div":
 			return " divided by "
 		case "approx":
@@ -530,8 +530,8 @@ func GenerateSpokenTranscript(text string) string {
 	})
 
 	// 19. Markdown syntax stripping (fluent transitions without repeated dot pauses)
-	s = headerRx.ReplaceAllString(s, ". ")
-	s = bulletRx.ReplaceAllString(s, ", ")
+	s = headerRx.ReplaceAllString(s, " ")
+	s = bulletRx.ReplaceAllString(s, " ")
 	s = numberedListRx.ReplaceAllString(s, ". Step $1. ")
 	s = boldRx.ReplaceAllString(s, " $1 ")
 	s = italicRx.ReplaceAllString(s, " $1 ")
@@ -557,6 +557,7 @@ func GenerateSpokenTranscript(text string) string {
 	s = strings.ReplaceAll(s, " ,", ",")
 	s = regexp.MustCompile(`\s*(\.\s*)+`).ReplaceAllString(s, ". ")
 	s = regexp.MustCompile(`\s*(,\s*)+`).ReplaceAllString(s, ", ")
+	s = regexp.MustCompile(`^[\s.,;:]+`).ReplaceAllString(s, "") // Strip any leading punctuation
 	return strings.TrimSpace(s)
 }
 

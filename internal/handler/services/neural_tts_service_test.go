@@ -16,13 +16,13 @@ func TestNeuralTTSService_VoiceResolution(t *testing.T) {
 		text     string
 		expected string
 	}{
-		{"priya", "Namaste", "hi-IN-SwaraNeural"},
-		{"academic", "Doubt", "hi-IN-SwaraNeural"},
-		{"aryan", "Complex question", "hi-IN-SwaraNeural"},
-		{"professor", "PYQ question", "hi-IN-SwaraNeural"},
-		{"mentor", "English explanation", "hi-IN-SwaraNeural"},
+		{"priya", "Namaste", "en-IN-NeerjaExpressiveNeural"},
+		{"academic", "Doubt", "en-IN-NeerjaExpressiveNeural"},
+		{"aryan", "Complex question", "en-IN-NeerjaExpressiveNeural"},
+		{"professor", "PYQ question", "en-IN-NeerjaExpressiveNeural"},
+		{"mentor", "English explanation", "en-IN-NeerjaExpressiveNeural"},
 		{"mentor", "नमस्ते", "hi-IN-SwaraNeural"},
-		{"unknown", "Random", "hi-IN-SwaraNeural"},
+		{"unknown", "Random", "en-IN-NeerjaExpressiveNeural"},
 	}
 
 	for _, tt := range tests {
