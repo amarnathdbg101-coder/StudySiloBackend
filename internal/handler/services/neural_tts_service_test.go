@@ -72,4 +72,13 @@ func TestNeuralTTSService_SynthesizeAndCache(t *testing.T) {
 	if len(cachedBytes) != len(audioBytes) {
 		t.Errorf("Cache bytes mismatch: got %d, want %d", len(cachedBytes), len(audioBytes))
 	}
+
+	// Test SynthesizeSpeechFile returns valid cached path
+	filePath, err := svc.SynthesizeSpeechFile(ctx, testText, "priya")
+	if err != nil {
+		t.Fatalf("SynthesizeSpeechFile failed: %v", err)
+	}
+	if filePath != cachedFilePath {
+		t.Errorf("SynthesizeSpeechFile returned %s, want %s", filePath, cachedFilePath)
+	}
 }

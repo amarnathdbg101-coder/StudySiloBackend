@@ -67,16 +67,15 @@ func (c *TTSController) Synthesize(w http.ResponseWriter, r *http.Request) {
 		trimmedText = trimmedText[:1500]
 	}
 
-	audioBytes, err := c.ttsService.SynthesizeSpeech(r.Context(), trimmedText, persona)
+	filePath, err := c.ttsService.SynthesizeSpeechFile(r.Context(), trimmedText, persona)
 	if err != nil {
 		reuse.Error(w, http.StatusInternalServerError, fmt.Sprintf("Speech synthesis error: %v", err))
 		return
 	}
 
-	// Stream audio response with HTTP caching headers
+	// Stream audio response with HTTP range request support (206 Partial Content)
+	// and progressive streaming with zero Go memory allocation
 	w.Header().Set("Content-Type", "audio/mpeg")
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(audioBytes)))
 	w.Header().Set("Cache-Control", "public, max-age=604800, immutable") // 7 days disk cache
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(audioBytes)
+	http.ServeFile(w, r, filePath)
 }

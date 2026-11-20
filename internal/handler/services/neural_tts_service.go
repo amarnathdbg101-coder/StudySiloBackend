@@ -55,12 +55,27 @@ func containsDevanagari(text string) bool {
 	return false
 }
 
-// SynthesizeSpeech converts spoken academic text into studio-grade MP3 audio.
-// It checks local cache first for sub-millisecond replay latency.
+// SynthesizeSpeech converts spoken academic text into studio-grade MP3 audio bytes.
+// It uses SynthesizeSpeechFile for disk caching and reads the final bytes.
 func (s *NeuralTTSService) SynthesizeSpeech(ctx context.Context, text, persona string) ([]byte, error) {
+	filePath, err := s.SynthesizeSpeechFile(ctx, text, persona)
+	if err != nil {
+		return nil, err
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return os.ReadFile(filePath)
+}
+
+// SynthesizeSpeechFile converts spoken academic text into studio-grade MP3 audio on disk.
+// It returns the absolute file path of the cached or freshly synthesized MP3 file.
+// This allows the HTTP controller to use http.ServeFile which handles HTTP Range headers
+// (206 Partial Content) and progressive streaming with zero memory copying in Go!
+func (s *NeuralTTSService) SynthesizeSpeechFile(ctx context.Context, text, persona string) (string, error) {
 	trimmedText := strings.TrimSpace(text)
 	if trimmedText == "" {
-		return nil, fmt.Errorf("text cannot be empty")
+		return "", fmt.Errorf("text cannot be empty")
 	}
 
 	// 1. Sanitize raw LaTeX, math equations, scientific notation, and markdown into natural human prose
@@ -76,49 +91,41 @@ func (s *NeuralTTSService) SynthesizeSpeech(ctx context.Context, text, persona s
 
 	voice := s.ResolveVoice(persona, cleanText)
 
-	// 2. Calculate deterministic MD5 hash for instant disk caching
-	hash := md5.Sum([]byte(cleanText + "_" + voice))
+	// 2. Calculate deterministic MD5 hash for instant disk caching (versioned for sweet audio tuning)
+	hash := md5.Sum([]byte(cleanText + "_" + voice + "_rate8_pitch3_v1"))
 	fileName := hex.EncodeToString(hash[:]) + ".mp3"
 	filePath := filepath.Join(s.cacheDir, fileName)
 
 	// 3. ⚡ Fast Cache Hit Check (Sub-millisecond latency)
 	s.mu.RLock()
 	if info, err := os.Stat(filePath); err == nil && info.Size() > 0 {
-		data, err := os.ReadFile(filePath)
 		s.mu.RUnlock()
-		if err == nil && len(data) > 0 {
-			return data, nil
-		}
-	} else {
-		s.mu.RUnlock()
+		return filePath, nil
 	}
+	s.mu.RUnlock()
 
 	// 4. Concurrency Limiter (Semaphore): Allow max 3 concurrent edge-tts subprocesses
 	select {
 	case s.sem <- struct{}{}:
 		defer func() { <-s.sem }()
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return "", ctx.Err()
 	case <-time.After(8 * time.Second):
-		return nil, fmt.Errorf("server audio synthesizer busy, please retry shortly")
+		return "", fmt.Errorf("server audio synthesizer busy, please retry shortly")
 	}
 
 	// Double-check cache in case another goroutine generated this file while waiting for semaphore
 	s.mu.RLock()
 	if info, err := os.Stat(filePath); err == nil && info.Size() > 0 {
-		data, err := os.ReadFile(filePath)
 		s.mu.RUnlock()
-		if err == nil && len(data) > 0 {
-			return data, nil
-		}
-	} else {
-		s.mu.RUnlock()
+		return filePath, nil
 	}
+	s.mu.RUnlock()
 
 	// 5. Build command with strict request context cancellation
 	cmd, cancel, err := s.buildSynthesizeCommand(ctx, cleanText, voice, filePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build synthesis command: %w", err)
+		return "", fmt.Errorf("failed to build synthesis command: %w", err)
 	}
 	defer cancel()
 
@@ -126,24 +133,20 @@ func (s *NeuralTTSService) SynthesizeSpeech(ctx context.Context, text, persona s
 	if err != nil {
 		// Clean up broken/empty file if synthesis failed or client canceled
 		_ = os.Remove(filePath)
-		return nil, fmt.Errorf("neural tts synthesis failed: %v (output: %s)", err, strings.TrimSpace(string(output)))
+		return "", fmt.Errorf("neural tts synthesis failed: %v (output: %s)", err, strings.TrimSpace(string(output)))
 	}
 
-	// 6. Safely read and return the synthesized audio bytes
+	// 6. Verify synthesized audio file exists and is not empty
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	audioBytes, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read synthesized audio file: %w", err)
-	}
-
-	if len(audioBytes) == 0 {
+	info, err := os.Stat(filePath)
+	if err != nil || info.Size() == 0 {
 		_ = os.Remove(filePath)
-		return nil, fmt.Errorf("synthesized audio file is empty")
+		return "", fmt.Errorf("synthesized audio file is empty or missing")
 	}
 
-	return audioBytes, nil
+	return filePath, nil
 }
 
 // buildSynthesizeCommand locates the edge-tts runner across Windows, Linux, and Docker environments.
@@ -153,23 +156,23 @@ func (s *NeuralTTSService) buildSynthesizeCommand(ctx context.Context, text, voi
 
 	// Candidate 1: Direct edge-tts binary in system PATH
 	if p, err := exec.LookPath("edge-tts"); err == nil {
-		return exec.CommandContext(cCtx, p, "--voice", voice, "--rate=+15%", "--text", text, "--write-media", outputPath), cancel, nil
+		return exec.CommandContext(cCtx, p, "--voice", voice, "--rate=+8%", "--pitch=+3Hz", "--text", text, "--write-media", outputPath), cancel, nil
 	}
 
 	// Candidate 2: Common Windows AppData Python Scripts directory
 	winScriptsPath := filepath.Join(os.Getenv("APPDATA"), "Python", "Python314", "Scripts", "edge-tts.exe")
 	if _, err := os.Stat(winScriptsPath); err == nil {
-		return exec.CommandContext(cCtx, winScriptsPath, "--voice", voice, "--rate=+15%", "--text", text, "--write-media", outputPath), cancel, nil
+		return exec.CommandContext(cCtx, winScriptsPath, "--voice", voice, "--rate=+8%", "--pitch=+3Hz", "--text", text, "--write-media", outputPath), cancel, nil
 	}
 
 	// Candidate 3: Python module invocation (python -m edge_tts)
 	if pythonBin, err := exec.LookPath("python"); err == nil {
-		return exec.CommandContext(cCtx, pythonBin, "-m", "edge_tts", "--voice", voice, "--rate=+15%", "--text", text, "--write-media", outputPath), cancel, nil
+		return exec.CommandContext(cCtx, pythonBin, "-m", "edge_tts", "--voice", voice, "--rate=+8%", "--pitch=+3Hz", "--text", text, "--write-media", outputPath), cancel, nil
 	}
 
 	// Candidate 4: Python3 module invocation (python3 -m edge_tts for Linux/Docker)
 	if python3Bin, err := exec.LookPath("python3"); err == nil {
-		return exec.CommandContext(cCtx, python3Bin, "-m", "edge_tts", "--voice", voice, "--rate=+15%", "--text", text, "--write-media", outputPath), cancel, nil
+		return exec.CommandContext(cCtx, python3Bin, "-m", "edge_tts", "--voice", voice, "--rate=+8%", "--pitch=+3Hz", "--text", text, "--write-media", outputPath), cancel, nil
 	}
 
 	cancel()
