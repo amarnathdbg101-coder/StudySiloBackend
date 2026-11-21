@@ -474,9 +474,9 @@ func (s *quizService) SubmitQuiz(ctx context.Context, id, userID string, req dto
 		return nil, errors.New("quiz not found or session expired")
 	}
 
-	qMap := make(map[string]*model.QuizQuestion)
-	for _, q := range quiz.Questions {
-		qMap[q.ID] = q
+	ansMap := make(map[string]dto.QuestionAnswerInput)
+	for _, a := range req.Answers {
+		ansMap[a.QuestionID] = a
 	}
 
 	type evalResult struct {
@@ -486,25 +486,25 @@ func (s *quizService) SubmitQuiz(ctx context.Context, id, userID string, req dto
 		feedback         string
 		keyPointsCovered []string
 		keyPointsMissed  []string
+		studentSelected  int
+		studentText      string
 	}
 
-	evalResults := make([]evalResult, len(req.Answers))
+	totalQuestions := len(quiz.Questions)
+	evalResults := make([]evalResult, totalQuestions)
 
 	// ⚡ Go Concurrency: Grade subjective questions concurrently using sync.WaitGroup
 	// Common Go Concurrency Mistakes Avoided:
 	// 1. Calling wg.Add(1) INSIDE goroutine causes a race condition where wg.Wait() returns early.
 	//    Solution: Call wg.Add(1) strictly before spawning go func().
 	// 2. Data race when appending to a shared slice without mutex locks.
-	//    Solution: Pre-allocate evalResults with exact length len(req.Answers) and assign to distinct index evalResults[i].
+	//    Solution: Pre-allocate evalResults with exact length len(quiz.Questions) and assign to distinct index evalResults[i].
 	// 3. Capturing loop iteration variables by reference (in older Go versions).
 	//    Solution: Pass index, question pointer, and student answer as value parameters to the goroutine.
 	var wg sync.WaitGroup
 
-	for i, ans := range req.Answers {
-		q, exists := qMap[ans.QuestionID]
-		if !exists {
-			continue
-		}
+	for i, q := range quiz.Questions {
+		ans, hasAns := ansMap[q.ID]
 
 		maxMarks := q.MaxMarks
 		if maxMarks <= 0 {
@@ -515,11 +515,47 @@ func (s *quizService) SubmitQuiz(ctx context.Context, id, userID string, req dto
 			}
 		}
 
-		if q.QuestionType == "subjective" {
+		qType := q.QuestionType
+		if qType == "" {
+			if len(q.Options) >= 2 {
+				qType = "mcq"
+			} else {
+				qType = "subjective"
+			}
+		}
+
+		if !hasAns {
+			evalResults[i] = evalResult{
+				score:           0,
+				maxMarks:        maxMarks,
+				isCorrect:       false,
+				feedback:        "Question not attempted.",
+				studentSelected: -1,
+				studentText:     "",
+			}
+			continue
+		}
+
+		studentSelected := ans.SelectedOption
+		studentText := strings.TrimSpace(ans.AnswerText)
+
+		if qType == "subjective" {
+			if studentText == "" {
+				evalResults[i] = evalResult{
+					score:           0,
+					maxMarks:        maxMarks,
+					isCorrect:       false,
+					feedback:        "Question not attempted (no written response provided).",
+					studentSelected: -1,
+					studentText:     "",
+				}
+				continue
+			}
+
 			wg.Add(1)
-			go func(idx int, question *model.QuizQuestion, studentAns string, qMaxMarks int) {
+			go func(idx int, question *model.QuizQuestion, sText string, qMaxMarks int) {
 				defer wg.Done()
-				score, isCorrect, feedback, covered, missed := s.evaluateSubjectiveAnswer(ctx, question, studentAns)
+				score, isCorrect, feedback, covered, missed := s.evaluateSubjectiveAnswer(ctx, question, sText)
 				if score > qMaxMarks {
 					score = qMaxMarks
 				}
@@ -530,19 +566,34 @@ func (s *quizService) SubmitQuiz(ctx context.Context, id, userID string, req dto
 					feedback:         feedback,
 					keyPointsCovered: covered,
 					keyPointsMissed:  missed,
+					studentSelected:  -1,
+					studentText:      sText,
 				}
-			}(i, q, ans.AnswerText, maxMarks)
+			}(i, q, studentText, maxMarks)
 		} else {
 			// Fast deterministic grading for Multiple Choice Questions (MCQ)
-			isCorrect := (ans.SelectedOption == q.CorrectOptionIndex)
-			score := 0
-			if isCorrect {
-				score = maxMarks
-			}
-			evalResults[i] = evalResult{
-				score:     score,
-				maxMarks:  maxMarks,
-				isCorrect: isCorrect,
+			if studentSelected < 0 || studentSelected >= len(q.Options) {
+				evalResults[i] = evalResult{
+					score:           0,
+					maxMarks:        maxMarks,
+					isCorrect:       false,
+					feedback:        "Question not attempted.",
+					studentSelected: -1,
+					studentText:     "",
+				}
+			} else {
+				isCorrect := (studentSelected == q.CorrectOptionIndex)
+				score := 0
+				if isCorrect {
+					score = maxMarks
+				}
+				evalResults[i] = evalResult{
+					score:           score,
+					maxMarks:        maxMarks,
+					isCorrect:       isCorrect,
+					studentSelected: studentSelected,
+					studentText:     "",
+				}
 			}
 		}
 	}
@@ -571,11 +622,7 @@ func (s *quizService) SubmitQuiz(ctx context.Context, id, userID string, req dto
 	var weakTopics []string
 	var strongTopics []string
 
-	for i, ans := range req.Answers {
-		q, exists := qMap[ans.QuestionID]
-		if !exists {
-			continue
-		}
+	for i, q := range quiz.Questions {
 		res := evalResults[i]
 		score += res.score
 
@@ -595,10 +642,10 @@ func (s *quizService) SubmitQuiz(ctx context.Context, id, userID string, req dto
 		}
 
 		userAnswers = append(userAnswers, model.UserAnswer{
-			QuestionID:       ans.QuestionID,
+			QuestionID:       q.ID,
 			QuestionType:     qType,
-			SelectedOption:   ans.SelectedOption,
-			AnswerText:       ans.AnswerText,
+			SelectedOption:   res.studentSelected,
+			AnswerText:       res.studentText,
 			Score:            res.score,
 			MaxMarks:         res.maxMarks,
 			IsCorrect:        res.isCorrect,
@@ -611,9 +658,10 @@ func (s *quizService) SubmitQuiz(ctx context.Context, id, userID string, req dto
 			QuestionID:         q.ID,
 			QuestionType:       qType,
 			QuestionText:       q.QuestionText,
-			SelectedOption:     ans.SelectedOption,
+			Options:            q.Options,
+			SelectedOption:     res.studentSelected,
 			CorrectOptionIndex: q.CorrectOptionIndex,
-			StudentAnswer:      ans.AnswerText,
+			StudentAnswer:      res.studentText,
 			ModelAnswer:        q.ModelAnswer,
 			Score:              res.score,
 			MaxMarks:           res.maxMarks,

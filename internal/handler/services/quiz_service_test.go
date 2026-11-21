@@ -469,3 +469,78 @@ func TestQuizService_SubjectiveAndMixedGenerationAndGrading(t *testing.T) {
 	}
 }
 
+func TestQuizService_EarlySubmissionAndUnansweredQuestions(t *testing.T) {
+	ctx := context.Background()
+	quizRepo := &mockQuizRepo{quizzes: make(map[string]*model.Quiz)}
+	cogRepo := &mockCognitiveRepo{profiles: make(map[string]*model.CognitiveProfile)}
+	orch := ai.NewOrchestrator([]string{}, []string{}, []string{})
+	svc := NewQuizService(quizRepo, cogRepo, orch)
+
+	// 1. Generate a 5-question test
+	quiz, err := svc.GenerateQuiz(ctx, "user-early-1", dto.GenerateQuizRequest{
+		Topic:         "Quantum Mechanics",
+		Difficulty:    "hard",
+		QuestionCount: 5,
+	})
+	if err != nil {
+		t.Fatalf("failed to generate quiz: %v", err)
+	}
+	if len(quiz.Questions) != 5 {
+		t.Fatalf("expected 5 questions, got %d", len(quiz.Questions))
+	}
+
+	// 2. Student decides to submit early! Only answers question 0 correctly, and question 2 incorrectly.
+	// Questions 1, 3, and 4 are completely omitted from the payload (or skipped).
+	earlyAnswers := []dto.QuestionAnswerInput{
+		{
+			QuestionID:     quiz.Questions[0].ID,
+			SelectedOption: quiz.Questions[0].CorrectOptionIndex, // Correct
+		},
+		{
+			QuestionID:     quiz.Questions[2].ID,
+			SelectedOption: (quiz.Questions[2].CorrectOptionIndex + 1) % 4, // Incorrect
+		},
+	}
+
+	res, err := svc.SubmitQuiz(ctx, quiz.ID, "user-early-1", dto.SubmitQuizRequest{
+		TimeTakenSeconds: 45, // Submitted very early in 45 seconds
+		Answers:          earlyAnswers,
+	})
+	if err != nil {
+		t.Fatalf("early submission failed: %v", err)
+	}
+
+	// Feedback MUST contain all 5 questions
+	if len(res.Feedback) != 5 {
+		t.Fatalf("expected 5 feedback items for early submit, got %d", len(res.Feedback))
+	}
+
+	// Q0 should be correct
+	if !res.Feedback[0].IsCorrect || res.Feedback[0].Score != res.Feedback[0].MaxMarks {
+		t.Errorf("expected Q0 to be correct, got isCorrect=%v score=%d", res.Feedback[0].IsCorrect, res.Feedback[0].Score)
+	}
+
+	// Q1 was skipped/omitted -> score 0, not attempted
+	if res.Feedback[1].Score != 0 || res.Feedback[1].IsCorrect {
+		t.Errorf("expected skipped Q1 to have score 0 and false, got score=%d isCorrect=%v", res.Feedback[1].Score, res.Feedback[1].IsCorrect)
+	}
+	if !strings.Contains(res.Feedback[1].Feedback, "not attempted") {
+		t.Errorf("expected skipped Q1 feedback to mention 'not attempted', got %q", res.Feedback[1].Feedback)
+	}
+
+	// Q2 was wrong
+	if res.Feedback[2].IsCorrect || res.Feedback[2].Score != 0 {
+		t.Errorf("expected Q2 to be incorrect, got isCorrect=%v", res.Feedback[2].IsCorrect)
+	}
+
+	// Q3 and Q4 were skipped/omitted
+	if res.Feedback[3].Score != 0 || res.Feedback[4].Score != 0 {
+		t.Errorf("expected Q3 and Q4 to have score 0")
+	}
+
+	// Check Options are populated
+	if len(res.Feedback[0].Options) == 0 {
+		t.Errorf("expected Options to be populated in feedback")
+	}
+}
+

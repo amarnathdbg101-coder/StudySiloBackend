@@ -32,6 +32,7 @@ type QuestionFeedback struct {
 	QuestionID         string   `json:"question_id"`
 	QuestionType       string   `json:"question_type"` // "mcq" | "subjective"
 	QuestionText       string   `json:"question_text"`
+	Options            []string `json:"options,omitempty"`
 	SelectedOption     int      `json:"selected_option"`
 	CorrectOptionIndex int      `json:"correct_option_index"`
 	StudentAnswer      string   `json:"student_answer,omitempty"`
