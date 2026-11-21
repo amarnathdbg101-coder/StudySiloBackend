@@ -118,7 +118,7 @@ type GenerateFlashcardDeckRequest struct {
 	Topic      string `json:"topic" validate:"required,min=2"`
 	Content    string `json:"content,omitempty"`
 	CardCount  int    `json:"card_count" validate:"omitempty,min=3,max=20"`
-	Difficulty string `json:"difficulty" validate:"omitempty,oneof=easy medium hard"`
+	Difficulty string `json:"difficulty" validate:"omitempty,oneof=easy medium hard standard"`
 	SaveDeck   bool   `json:"save_deck"`
 	Provider   string `json:"provider,omitempty"`
 	Model      string `json:"model,omitempty"`
