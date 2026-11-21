@@ -36,6 +36,7 @@ type diagramService struct {
 	quizRepo      repository.QuizRepository
 	flashcardRepo repository.FlashcardRepository
 	pdfService    PDFExportService
+	cache         *DiagramCache
 }
 
 func NewDiagramService(
@@ -51,6 +52,7 @@ func NewDiagramService(
 		quizRepo:      quizRepo,
 		flashcardRepo: flashcardRepo,
 		pdfService:    pdfService,
+		cache:         NewDiagramCache(300, 24*time.Hour),
 	}
 }
 
@@ -80,6 +82,16 @@ func cleanConceptAndExtractIntent(raw string) (string, string) {
 	if strings.Contains(lower, "exam") || strings.Contains(lower, "trap") || strings.Contains(lower, "gotcha") || strings.Contains(lower, "viva") {
 		directives = append(directives, "Student requested EXAM SCORING FOCUS: Highlight tricky examiner traps and viva oral questions.")
 	}
+	if strings.Contains(lower, "syllabus") || strings.Contains(lower, "syllbus") ||
+		strings.Contains(lower, "curriculum") || strings.Contains(lower, "roadmap") ||
+		strings.Contains(lower, "road map") || strings.Contains(lower, "course structure") ||
+		strings.Contains(lower, "all topics") || strings.Contains(lower, "all chapters") ||
+		strings.Contains(lower, "learning path") {
+		directives = append(directives, "Student explicitly requested ACADEMIC SYLLABUS & CURRICULUM ROADMAP: Organize the mind map into comprehensive, sequential course Units/Modules (e.g. Unit 1: Foundations & Architecture, Unit 2: Core Engineering, Unit 3: Protocols & Data Layer, Unit 4: Advanced Mechanisms, Unit 5: Security & Production). Ensure each major branch represents a full module with all key examinable topics and foundational concepts.")
+	}
+	if strings.Contains(lower, "concept") || strings.Contains(lower, "theory") || strings.Contains(lower, "overview") {
+		directives = append(directives, "Student requested CONCEPTUAL PRINCIPLES: Clearly highlight governing principles, definitions, and mental models.")
+	}
 
 	if len(directives) == 0 {
 		directives = append(directives, "Deliver an intuitive, academically rigorous breakdown with foundational principles, step-by-step logic, and real-world relevance.")
@@ -88,6 +100,27 @@ func cleanConceptAndExtractIntent(raw string) (string, string) {
 	// Clean out conversational filler words and query phrasing
 	cleaned := trimmed
 	patternsToRemove := []string{
+		// Suffixes asking for syllabus / concepts / roadmap in Hindi & Hinglish
+		`(?i)\s*(ka|ki|ke)?\s*(syllabus|syllbus|curriculum|course|topics|all\s+topics|chapter|full\s+syllabus|complete\s+syllabus)\s*(and|aur)?\s*(concept(s)?)?\s*(do|dijiye|batao|bataiye|chahiye|de\s*do|dikhao)?.*`,
+		`(?i)\s*(ka|ki|ke)?\s*(roadmap|road\s*map|pathway|learning\s+path)\s*(do|dijiye|batao|bataiye|chahiye|de\s*do|dikhao)?.*`,
+		`(?i)\s*(ka|ki|ke)?\s*(concept(s)?|theory|notes|mind\s*map|overview|summary)\s*(do|dijiye|batao|bataiye|chahiye|de\s*do|dikhao)?.*`,
+		`(?i)\s*(ka|ki|ke)?\s*(saare|sare)\s+topics.*`,
+		`(?i)\s*ka\s+banao.*`,
+		`(?i)\s*ki\s+list.*`,
+		`(?i)\s*ke\s+topics.*`,
+		`(?i)\s+banao.*`,
+		`(?i)\s+chahiye.*`,
+		`(?i)\s+dikhao.*`,
+		`(?i)\s+de\s+do.*`,
+		`(?i)\s+do$`,
+		// English suffixes
+		`(?i)\s+(full\s+|complete\s+)?syllabus(\s+and\s+concept(s)?)?.*`,
+		`(?i)\s+(full\s+|complete\s+)?curriculum.*`,
+		`(?i)\s+course\s+structure.*`,
+		`(?i)\s+(full\s+|complete\s+)?roadmap.*`,
+		`(?i)\s+all\s+concepts.*`,
+		`(?i)\s+all\s+topics.*`,
+		`(?i)\s+complete\s+guide.*`,
 		// Hinglish / Hindi fillers (suffixes)
 		`(?i)\s*ko\s+deep\s+me\s+samjhao.*`,
 		`(?i)\s*ko\s+detail\s+me\s+samjhao.*`,
@@ -111,11 +144,13 @@ func cleanConceptAndExtractIntent(raw string) (string, string) {
 		`(?i)\s+in\s+depth.*`,
 		`(?i)\s+step\s+by\s+step.*`,
 		`(?i)\s+deeply.*`,
-		`(?i)\s+with\s+examples.*`,
+		`(?i)\s+with\s+example(s)?.*`,
 		`(?i)\s+with\s+code.*`,
-		`(?i)\s+with\s+formulas.*`,
-		`(?i)\s+with\s+equations.*`,
-		`(?i)\s+with\s+derivations.*`,
+		`(?i)\s+with\s+formula(s)?.*`,
+		`(?i)\s+with\s+equation(s)?.*`,
+		`(?i)\s+with\s+derivation(s)?.*`,
+		`(?i)\s+exam\s+(gotcha|trap|twist|question)(s)?.*`,
+		`(?i)\s+viva\s+(question|insight|drill)(s)?.*`,
 		// English prefixes
 		`(?i)^explain\s+to\s+me\s+about\s+`,
 		`(?i)^explain\s+to\s+me\s+`,
@@ -159,6 +194,22 @@ func (s *diagramService) GenerateDiagram(ctx context.Context, userID string, req
 
 	canonicalConcept, studentDirectives := cleanConceptAndExtractIntent(req.Concept)
 
+	aiLanguage := strings.TrimSpace(req.AILanguage)
+	if aiLanguage == "" {
+		aiLanguage = strings.TrimSpace(req.Language)
+	}
+	if aiLanguage == "" {
+		aiLanguage = middleware.GetAILanguage(ctx)
+	}
+
+	// ⚡ High-Speed Cache Check: Instant sub-second response for repeated academic topics
+	cacheKey := BuildCacheKey(canonicalConcept, req.Archetype, aiLanguage)
+	if !req.Force && s.cache != nil {
+		if cached, hit := s.cache.Get(cacheKey); hit && cached != nil {
+			return cached, nil
+		}
+	}
+
 	systemPrompt := `You are an elite academic Master Professor and Visual Knowledge Architect (combining Feynman's first-principles intuition, 3Blue1Brown's visual clarity, and top competitive exam rigor).
 Your mission is to generate a clean, point-by-point, highly engaging, and memorable visual mind map for the requested student concept.
 
@@ -167,6 +218,10 @@ The student may provide an informal conversational question or detailed prompt (
 YOU MUST:
 1. Focus strictly on the canonical subject ("concept" / root label). NEVER put conversational filler phrases like "ko deep me samjhao" or "explain please" into node labels!
 2. Fulfill the student's learning depth and specific instructions:
+   - If they ask for "syllabus" / "syllbus" / "curriculum" / "roadmap" / "all concepts" (e.g. "web technology ka syllabus and concept do", "DBMS complete syllabus"):
+     Generate an AUTHORITATIVE ACADEMIC SYLLABUS & CURRICULUM ROADMAP!
+     Structure the 4 to 6 major branches as chronological course Modules / Units (e.g., Unit 1: Foundations & Architecture, Unit 2: Core Engineering, Unit 3: Protocols & Data Layer, Unit 4: Advanced Mechanisms, Unit 5: Security & Deployment).
+     Populate leaf nodes with the exact examinable concepts, architectures, and protocols of each unit.
    - If they ask for "deep" / "in depth" / "deep me": Generate comprehensive internal mechanisms, state invariants, time/space trade-offs, and boundary edge cases.
    - If they ask for "examples" / "code": Provide concrete snippets, examples, or numbers in the leaf nodes.
    - If they ask for "step by step": Lay out the branches in chronological / procedural sequence using the "flow" archetype.
@@ -286,14 +341,6 @@ Output a single valid JSON object strictly matching this schema:
   "nodes": [],
   "edges": []
 } `
-	aiLanguage := strings.TrimSpace(req.AILanguage)
-	if aiLanguage == "" {
-		aiLanguage = strings.TrimSpace(req.Language)
-	}
-	if aiLanguage == "" {
-		aiLanguage = middleware.GetAILanguage(ctx)
-	}
-
 	langDirective := ai.BuildLanguageInstruction(aiLanguage)
 	systemPrompt = langDirective + "\n\n" + systemPrompt + "\n\n" + langDirective
 
@@ -351,7 +398,9 @@ CRITICAL ARCHITECTURAL DIRECTIVES:
 	if req.Archetype != "" && req.Archetype != "auto" {
 		diagram.Archetype = req.Archetype
 	} else if diagram.Archetype == "" || diagram.Archetype == "auto" {
-		if strings.Contains(lowerConcept, "flow") || strings.Contains(lowerConcept, "sort") || strings.Contains(lowerConcept, "search") || strings.Contains(lowerConcept, "algorithm") || strings.Contains(lowerConcept, "pipeline") || strings.Contains(lowerConcept, "glycolysis") || strings.Contains(lowerConcept, "respiration") {
+		if strings.Contains(lowerConcept, "syllabus") || strings.Contains(lowerConcept, "syllbus") || strings.Contains(lowerConcept, "curriculum") || strings.Contains(lowerConcept, "roadmap") || strings.Contains(lowerConcept, "course") {
+			diagram.Archetype = "stack"
+		} else if strings.Contains(lowerConcept, "flow") || strings.Contains(lowerConcept, "sort") || strings.Contains(lowerConcept, "search") || strings.Contains(lowerConcept, "algorithm") || strings.Contains(lowerConcept, "pipeline") || strings.Contains(lowerConcept, "glycolysis") || strings.Contains(lowerConcept, "respiration") {
 			diagram.Archetype = "flow"
 		} else if strings.Contains(lowerConcept, "cycle") || strings.Contains(lowerConcept, "krebs") || strings.Contains(lowerConcept, "carnot") || strings.Contains(lowerConcept, "nitrogen") || strings.Contains(lowerConcept, "calvin") {
 			diagram.Archetype = "cycle"
@@ -406,6 +455,11 @@ CRITICAL ARCHITECTURAL DIRECTIVES:
 	// Offloads O(N^2) trigonometric math and bounding-box collision loops from mobile CPU
 	ai.ComputeDiagramLayout(&diagram, 2800, 2000)
 
+	// Save to in-memory TTL cache for instant sub-second retrieval on repeated queries
+	if s.cache != nil && len(diagram.Nodes) > 0 {
+		s.cache.Set(cacheKey, diagram)
+	}
+
 	return &diagram, err
 }
 
@@ -443,6 +497,14 @@ func isFallbackTerminalConcept(nodeLabel, nodeDetails string) (bool, string) {
 }
 
 func (s *diagramService) ExpandNode(ctx context.Context, userID string, req dto.ExpandNodeRequest) (*dto.ExpandNodeResponse, error) {
+	aiLanguage := strings.TrimSpace(req.AILanguage)
+	if aiLanguage == "" {
+		aiLanguage = strings.TrimSpace(req.Language)
+	}
+	if aiLanguage == "" {
+		aiLanguage = middleware.GetAILanguage(ctx)
+	}
+
 	systemPrompt := `You are an elite academic Master Professor and Visual Concept Architect.
 The student is exploring an interactive 4D Mind Map for the subject / concept: "` + req.Concept + `".
 They tapped on node: "` + req.NodeLabel + `" (Details: ` + req.NodeDetails + `) and requested an expansion.
@@ -528,14 +590,6 @@ Output JSON strictly matching:
     }
   ]
 }`
-	aiLanguage := strings.TrimSpace(req.AILanguage)
-	if aiLanguage == "" {
-		aiLanguage = strings.TrimSpace(req.Language)
-	}
-	if aiLanguage == "" {
-		aiLanguage = middleware.GetAILanguage(ctx)
-	}
-
 	langDirective := ai.BuildLanguageInstruction(aiLanguage)
 	systemPrompt = langDirective + "\n\n" + systemPrompt + "\n\n" + langDirective
 
@@ -727,6 +781,32 @@ Task: Evaluate cognitive saturation or generate 3 to 4 microscopic deep-dive sub
 		return &resp, nil
 	}
 
+	// Spatial Layout Computation: Pre-calculate non-overlapping 2D coordinates for newly expanded nodes
+	var parentX, parentY, parentW, parentH float64
+	if req.ParentX != 0 || req.ParentY != 0 {
+		parentX = req.ParentX
+		parentY = req.ParentY
+		parentW = req.ParentWidth
+		parentH = req.ParentHeight
+	} else if req.MindMapID != "" && userID != "" && s.mindMapRepo != nil {
+		if savedMap, getErr := s.mindMapRepo.GetByID(ctx, userID, req.MindMapID); getErr == nil && len(savedMap.Data) > 0 {
+			var diagData dto.DiagramResponse
+			if jsonErr := json.Unmarshal(savedMap.Data, &diagData); jsonErr == nil {
+				for _, n := range diagData.Nodes {
+					if n.ID == req.NodeID {
+						parentX = n.X
+						parentY = n.Y
+						parentW = n.Width
+						parentH = n.Height
+						break
+					}
+				}
+			}
+		}
+	}
+
+	ai.ComputeExpandedNodesLayout(resp.NewNodes, parentX, parentY, parentW, parentH, 2800, 2000)
+
 	// Efficient Database Auto-Persistence: If mind_map_id is provided, automatically append nodes to PostgreSQL
 	if req.MindMapID != "" && userID != "" && s.mindMapRepo != nil {
 		savedMap, getErr := s.mindMapRepo.GetByID(ctx, userID, req.MindMapID)
@@ -877,6 +957,7 @@ func flattenMindMapTree(node *dto.MindMapNode, nodes *[]dto.GraphNode, edges *[]
 		KeyTakeaway:  node.KeyTakeaway,
 		ExamTrap:     node.ExamTrap,
 		VivaInsight:  node.VivaInsight,
+		Mnemonic:     node.Mnemonic,
 		Importance:   importance,
 		Badge:        badge,
 		Metrics:      node.Metrics,
@@ -1434,8 +1515,136 @@ func buildDomainSmartMindMap(concept, diagramType string) dto.DiagramResponse {
 				},
 			},
 		}
+	} else if strings.Contains(lower, "web") || strings.Contains(lower, "html") || strings.Contains(lower, "css") || strings.Contains(lower, "javascript") || strings.Contains(lower, "frontend") || strings.Contains(lower, "fullstack") || strings.Contains(lower, "full stack") {
+		// 6B. WEB TECHNOLOGY & MODERN WEB DEVELOPMENT CURRICULUM
+		archetype = "stack"
+		resp.DomainType = "algorithm"
+		resp.Title = "Web Technology: Core Syllabus & Conceptual Roadmap"
+		summary = "End-to-end 5-module academic syllabus covering HTML5/CSS3 client architecture, JS asynchronous runtime, HTTP/REST protocols, state management, and web security."
+		branches = []fallbackBranch{
+			{
+				id: "b1", label: "Module 1: Client Foundation", subtitle: "HTML5 & Modern CSS3",
+				details: "• HTML5 Semantic Architecture: Structural elements (<header>, <nav>, <article>, <section>, <footer>) for SEO and accessibility\n• CSS Layout Engines: Flexbox 1D alignment vs CSS Grid 2D responsive matrix\n• Responsive Design: Viewport meta tag, fluid units (rem, em, vh, vw), and CSS3 media queries",
+				shape: "box", nodeType: "concept", color: "#6366F1",
+				metrics: map[string]string{"Layer": "Client Tier", "Standard": "W3C / WHATWG"},
+				trap: "❌ False: CSS Grid replaces Flexbox. ✅ Truth: Flexbox is for 1D row/column alignment; Grid is for 2D macro-layouts. Modern sites use both together!",
+				viva: "Explain the difference between block, inline, and inline-block elements.",
+				leaves: []fallbackLeaf{
+					{
+						id: "l1_1", label: "HTML5 Semantic & Forms", subtitle: "Semantic Web & Validation",
+						details: "• Structural tags replace generic divs to improve accessibility and web search indexing\n• Built-in client validation (pattern, required, min/max) reduces JavaScript overhead",
+						shape: "capsule", nodeType: "concept", color: "#818CF8",
+						trap: "Overusing generic <div> elements harms accessibility (a11y) and SEO ranking.",
+						viva: "What are semantic HTML tags and why are they critical for modern web apps?",
+					},
+					{
+						id: "l1_2", label: "Flexbox & CSS Grid", subtitle: "Responsive Box Model",
+						details: "• Flexbox distributes space along a single main-axis and cross-axis\n• CSS Grid divides layout into rows, columns, and named grid areas with fr units",
+						shape: "capsule", nodeType: "process", color: "#6366F1",
+						trap: "Confusing align-items (cross-axis in Flexbox) with justify-content (main-axis).",
+						viva: "Differentiate between CSS Grid (2D) and Flexbox (1D) with practical use-cases.",
+					},
+				},
+			},
+			{
+				id: "b2", label: "Module 2: Client Scripting", subtitle: "JavaScript ES6+ & DOM Engine",
+				details: "• Modern ES6+: Let/const block scoping, arrow functions, destructuring, and module imports\n• JavaScript Single-Threaded Runtime: Call Stack, Web APIs, Task Queue, and Event Loop\n• Asynchronous Programming: Promises, Async/Await syntax, and Fetch API for AJAX",
+				shape: "box", nodeType: "process", color: "#0EA5E9",
+				metrics: map[string]string{"Engine": "V8 / SpiderMonkey", "Paradigm": "Multi-Paradigm Event-Driven"},
+				trap: "❌ False: JavaScript is multi-threaded because of Async/Await. ✅ Truth: JS engine is strictly single-threaded; asynchronous operations are offloaded to browser Web APIs!",
+				viva: "How does the JavaScript Event Loop coordinate the Call Stack, Microtask queue, and Macrotask queue?",
+				leaves: []fallbackLeaf{
+					{
+						id: "l2_1", label: "Event Loop & Concurrency", subtitle: "Single-Thread Non-Blocking",
+						details: "• Call stack executes synchronous JS code immediately\n• Asynchronous timers and fetch callbacks wait in Microtask (Promises) and Macrotask queues\n• Event Loop pushes microtasks first before rendering next animation frame",
+						shape: "capsule", nodeType: "process", color: "#38BDF8",
+						trap: "Assuming setTimeout(fn, 0) runs immediately; it only queues callback into the macrotask queue!",
+						viva: "Explain the execution order of synchronous code, Promise.then (microtask), and setTimeout (macrotask).",
+					},
+					{
+						id: "l2_2", label: "DOM API & Event Delegation", subtitle: "Bubbling & Capturing",
+						details: "• DOM Tree traversal: querySelector, createElement, appendChild\n• Event phases: Capturing (down), Target, and Bubbling (up the DOM)\n• Event Delegation pattern attaches a single listener to parent node for performance",
+						shape: "capsule", nodeType: "process", color: "#0284C7",
+						trap: "Attaching separate event listeners to thousands of list items causes severe memory leaks; use Event Delegation instead.",
+						viva: "What is Event Bubbling and how do event.stopPropagation() and event.preventDefault() differ?",
+					},
+				},
+			},
+			{
+				id: "b3", label: "Module 3: Protocols & APIs", subtitle: "HTTP/HTTPS & REST Architecture",
+				details: "• HTTP/HTTPS Architecture: Request/Response format, stateless protocol, and TCP 3-way handshake\n• RESTful API Principles: Standard HTTP methods (GET, POST, PUT, DELETE, PATCH)\n• Real-Time Web: WebSockets full-duplex bi-directional TCP communication vs HTTP Long Polling",
+				shape: "box", nodeType: "process", color: "#10B981",
+				metrics: map[string]string{"Protocol": "HTTP/1.1, HTTP/2, HTTP/3", "Transport": "TCP / TLS / QUIC"},
+				trap: "❌ False: PUT and PATCH are identical. ✅ Truth: PUT replaces the entire resource; PATCH applies partial modifications!",
+				viva: "What makes an HTTP method idempotent? Which HTTP methods are idempotent?",
+				leaves: []fallbackLeaf{
+					{
+						id: "l3_1", label: "HTTP Methods & Status Codes", subtitle: "Stateless Communication",
+						details: "• 2xx (Success), 3xx (Redirection), 4xx (Client Error like 404/401), 5xx (Server Error like 500/502)\n• Key Headers: Content-Type, Authorization (Bearer token), Accept, Cache-Control",
+						shape: "capsule", nodeType: "concept", color: "#34D399",
+						trap: "Returning 200 OK with error payload body instead of appropriate 4xx/5xx HTTP status code.",
+						viva: "Differentiate between 401 Unauthorized (unauthenticated) and 403 Forbidden (unauthorized).",
+					},
+					{
+						id: "l3_2", label: "RESTful API Constraints", subtitle: "Resource-Oriented Architecture",
+						details: "• URI represents resources as nouns (/api/v1/users), HTTP verbs represent operations\n• Statelessness requires every request to carry all authentication credentials",
+						shape: "capsule", nodeType: "concept", color: "#059669",
+						trap: "Using verbs in URIs like /api/getUsers or /api/deleteUser violates REST principles.",
+						viva: "Explain the six architectural constraints of REST.",
+					},
+				},
+			},
+			{
+				id: "b4", label: "Module 4: State & Storage", subtitle: "Cookies, Sessions & Databases",
+				details: "• Client-Side Storage: LocalStorage (5-10MB synchronous), SessionStorage, and Cookies\n• Authentication Mechanisms: Server-side Sessions (Session ID cookie) vs Stateless JWT (JSON Web Tokens)\n• Backend Databases: Relational SQL (ACID transactions) vs NoSQL document stores (JSON collections)",
+				shape: "box", nodeType: "concept", color: "#F59E0B",
+				metrics: map[string]string{"Storage": "Browser & Cloud", "Auth": "JWT & OAuth2"},
+				trap: "❌ False: Storing JWT tokens in LocalStorage is 100% secure. ✅ Truth: LocalStorage is vulnerable to XSS attacks! HttpOnly Secure cookies are safer for session tokens.",
+				viva: "Compare Server-Side Sessions with Stateless JWT tokens in scalable web applications.",
+				leaves: []fallbackLeaf{
+					{
+						id: "l4_1", label: "JWT vs Session Authentication", subtitle: "Stateless vs Stateful Auth",
+						details: "• Sessions store user state in server memory/Redis; cookie holds random session ID\n• JWT contains digitally signed base64 payload (Header.Payload.Signature) requiring zero server database lookups",
+						shape: "capsule", nodeType: "concept", color: "#FBBF24",
+						trap: "JWT cannot be revoked easily before expiration without maintaining a server-side blacklist.",
+						viva: "Explain the 3 components of a JSON Web Token (JWT) and how signature verification works.",
+					},
+					{
+						id: "l4_2", label: "Browser Storage & Cookies", subtitle: "Client Persistence",
+						details: "• Cookies: Small 4KB limit, sent automatically with every HTTP request; use HttpOnly and Secure flags\n• LocalStorage: 5-10MB persistent across tabs; vulnerable to XSS if tokens stored insecurely",
+						shape: "capsule", nodeType: "concept", color: "#D97706",
+						trap: "Missing HttpOnly flag allows JavaScript to access cookies via document.cookie, enabling session hijacking.",
+						viva: "What is the purpose of the SameSite cookie attribute (Strict, Lax, None)?",
+					},
+				},
+			},
+			{
+				id: "b5", label: "Module 5: Security & Deployment", subtitle: "OWASP Hardening & Cloud CDN",
+				details: "• OWASP Top Web Attacks: Cross-Site Scripting (XSS), SQL Injection (SQLi), and CSRF\n• Security Policies: Same-Origin Policy (SOP), CORS headers, and Content Security Policy (CSP)\n• Performance & Deployment: CDN edge caching, asset minification, and CI/CD pipelines",
+				shape: "box", nodeType: "trap", color: "#EF4444",
+				metrics: map[string]string{"Security": "OWASP Top 10", "Deployment": "CDN & HTTPS"},
+				trap: "❌ False: CORS is a security mechanism to protect the client. ✅ Truth: CORS relaxes the browser's Same-Origin Policy to allow controlled cross-origin resource sharing!",
+				viva: "What is CORS (Cross-Origin Resource Sharing) and what triggers a preflight OPTIONS request?",
+				leaves: []fallbackLeaf{
+					{
+						id: "l5_1", label: "XSS & CSRF Prevention", subtitle: "Critical Web Vulnerabilities",
+						details: "• XSS: Injecting malicious JS scripts into client; prevented by contextual output encoding and CSP\n• CSRF: Forcing authenticated user to perform unauthorized actions; prevented by SameSite cookies and Anti-CSRF tokens",
+						shape: "diamond", nodeType: "trap", color: "#F87171",
+						trap: "Relying on client-side sanitization alone; security validation must ALWAYS happen on the server!",
+						viva: "Differentiate between Stored XSS, Reflected XSS, and DOM-based XSS.",
+					},
+					{
+						id: "l5_2", label: "HTTPS/TLS & CDN Edge", subtitle: "Transport Layer Security",
+						details: "• TLS handshake negotiates asymmetric public-key encryption to securely exchange symmetric session key\n• CDN (Content Delivery Network) serves static assets from geographically distributed edge servers near user",
+						shape: "capsule", nodeType: "process", color: "#DC2626",
+						trap: "Mixed Content warnings occur when an HTTPS site loads resources over insecure HTTP.",
+						viva: "How does HTTPS encrypt web traffic using both asymmetric and symmetric cryptography?",
+					},
+				},
+			},
+		}
 	} else {
-		// 6B. UNIVERSAL TOPIC-ADAPTIVE MIND MAP (100% Flexible, Point-by-Point, Zero Canned CS Text)
+		// 6C. UNIVERSAL TOPIC-ADAPTIVE MIND MAP (100% Flexible, Point-by-Point, Zero Canned CS Text)
 		archetype = "tree"
 		resp.DomainType = "general"
 		resp.Title = fmt.Sprintf("%s Concept Map", concept)

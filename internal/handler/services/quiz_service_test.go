@@ -339,7 +339,7 @@ func TestQuizService_ResilientAIParserAndDomainFallback(t *testing.T) {
 	}
 
 	// 2. Verify domain-aware fallback for coding topics (e.g. Python) does not return physics equations
-	codingQuestions := generateDomainQuestions("Python Loops", "medium", 3)
+	codingQuestions := generateDomainQuestions("Python Loops", "medium", "mcq", 3)
 	if len(codingQuestions) != 3 {
 		t.Fatalf("expected 3 questions, got %d", len(codingQuestions))
 	}
@@ -347,6 +347,125 @@ func TestQuizService_ResilientAIParserAndDomainFallback(t *testing.T) {
 		if strings.Contains(q.QuestionText, "\\oint") || strings.Contains(q.QuestionText, "Lyapunov") {
 			t.Errorf("coding fallback question contains physics equation: %s", q.QuestionText)
 		}
+	}
+}
+
+func TestQuizService_SubjectiveAndMixedGenerationAndGrading(t *testing.T) {
+	svc := &quizService{
+		quizRepo:      &mockQuizRepo{quizzes: make(map[string]*model.Quiz)},
+		cognitiveRepo: &mockCognitiveRepo{profiles: make(map[string]*model.CognitiveProfile)},
+		orchestrator:  nil, // tests resilient heuristic fallback
+	}
+
+	ctx := context.Background()
+
+	// 1. Generate Subjective Quiz
+	subjQuiz, err := svc.GenerateQuiz(ctx, "user-subjective-1", dto.GenerateQuizRequest{
+		Topic:         "PostgreSQL Concurrency & Isolation",
+		Difficulty:    "hard",
+		TestType:      "subjective",
+		QuestionCount: 3,
+	})
+	if err != nil {
+		t.Fatalf("failed to generate subjective quiz: %v", err)
+	}
+	if subjQuiz.TestType != "subjective" {
+		t.Errorf("expected test_type 'subjective', got '%s'", subjQuiz.TestType)
+	}
+	if len(subjQuiz.Questions) != 3 {
+		t.Fatalf("expected 3 questions, got %d", len(subjQuiz.Questions))
+	}
+	for _, q := range subjQuiz.Questions {
+		if q.QuestionType != "subjective" {
+			t.Errorf("expected question_type subjective, got %s", q.QuestionType)
+		}
+		if q.MaxMarks <= 0 {
+			t.Errorf("expected positive max_marks, got %d", q.MaxMarks)
+		}
+		if q.ModelAnswer == "" {
+			t.Errorf("expected non-empty model_answer for question %s", q.ID)
+		}
+		if len(q.Rubric) == 0 {
+			t.Errorf("expected rubric criteria for question %s", q.ID)
+		}
+	}
+
+	// 2. Submit Subjective Answers
+	answers := []dto.QuestionAnswerInput{
+		{
+			QuestionID:   subjQuiz.Questions[0].ID,
+			QuestionType: "subjective",
+			AnswerText:   "In PostgreSQL, concurrency control uses Multi-Version Concurrency Control (MVCC) and transaction isolation levels. State mutations and race conditions are mitigated using Write-Ahead Logging (WAL) and row-level locks, ensuring serializability and avoiding dirty reads.",
+		},
+		{
+			QuestionID:   subjQuiz.Questions[1].ID,
+			QuestionType: "subjective",
+			AnswerText:   "Short answer.", // Too brief
+		},
+		{
+			QuestionID:   subjQuiz.Questions[2].ID,
+			QuestionType: "subjective",
+			AnswerText:   "", // Blank
+		},
+	}
+
+	res, err := svc.SubmitQuiz(ctx, subjQuiz.ID, "user-subjective-1", dto.SubmitQuizRequest{
+		TimeTakenSeconds: 120,
+		Answers:          answers,
+	})
+	if err != nil {
+		t.Fatalf("failed to submit subjective quiz: %v", err)
+	}
+
+	if res.TotalScore <= 0 {
+		t.Errorf("expected positive total score, got %d", res.TotalScore)
+	}
+	if len(res.Feedback) != 3 {
+		t.Fatalf("expected 3 feedback items, got %d", len(res.Feedback))
+	}
+
+	// Q1: detailed answer should receive marks
+	if res.Feedback[0].Score <= 0 {
+		t.Errorf("expected Q1 to receive marks, got %d", res.Feedback[0].Score)
+	}
+	if len(res.Feedback[0].KeyPointsCovered) == 0 {
+		t.Errorf("expected Q1 to have covered key points")
+	}
+
+	// Q2: too brief answer should receive 0 marks
+	if res.Feedback[1].Score != 0 {
+		t.Errorf("expected Q2 to receive 0 marks for brief answer, got %d", res.Feedback[1].Score)
+	}
+
+	// Q3: blank answer should receive 0 marks
+	if res.Feedback[2].Score != 0 {
+		t.Errorf("expected Q3 to receive 0 marks for blank answer, got %d", res.Feedback[2].Score)
+	}
+
+	// 3. Generate Mixed Quiz
+	mixedQuiz, err := svc.GenerateQuiz(ctx, "user-mixed-1", dto.GenerateQuizRequest{
+		Topic:         "Cellular Respiration",
+		Difficulty:    "medium",
+		TestType:      "mixed",
+		QuestionCount: 4,
+	})
+	if err != nil {
+		t.Fatalf("failed to generate mixed quiz: %v", err)
+	}
+	if mixedQuiz.TestType != "mixed" {
+		t.Errorf("expected test_type 'mixed', got '%s'", mixedQuiz.TestType)
+	}
+	hasMCQ := false
+	hasSubj := false
+	for _, q := range mixedQuiz.Questions {
+		if q.QuestionType == "mcq" {
+			hasMCQ = true
+		} else if q.QuestionType == "subjective" {
+			hasSubj = true
+		}
+	}
+	if !hasMCQ || !hasSubj {
+		t.Errorf("expected mixed quiz to contain both MCQ and Subjective questions, got hasMCQ=%v hasSubj=%v", hasMCQ, hasSubj)
 	}
 }
 

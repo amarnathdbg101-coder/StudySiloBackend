@@ -98,3 +98,35 @@ func TestComputeDiagramLayout_CollisionAvoidance(t *testing.T) {
 		}
 	}
 }
+
+func TestComputeExpandedNodesLayout(t *testing.T) {
+	newNodes := []dto.GraphNode{
+		{ID: "sub1", Label: "Sub-Mechanism 1", NodeType: "leaf"},
+		{ID: "sub2", Label: "Sub-Mechanism 2", NodeType: "leaf"},
+		{ID: "sub3", Label: "Sub-Mechanism 3", NodeType: "leaf"},
+		{ID: "sub4", Label: "Sub-Mechanism 4", NodeType: "leaf"},
+	}
+
+	parentX, parentY := 800.0, 600.0
+	parentW, parentH := 200.0, 60.0
+
+	ComputeExpandedNodesLayout(newNodes, parentX, parentY, parentW, parentH, 2800, 2000)
+
+	for i, n := range newNodes {
+		if n.X == 0 && n.Y == 0 {
+			t.Errorf("Node %s was not positioned: (x=%f, y=%f)", n.ID, n.X, n.Y)
+		}
+		if n.Width == 0 || n.Height == 0 {
+			t.Errorf("Node %s has zero dimensions", n.ID)
+		}
+		// Nodes should not overlap each other
+		for j := i + 1; j < len(newNodes); j++ {
+			other := newNodes[j]
+			overlapX := (n.X < other.X+other.Width) && (n.X+n.Width > other.X)
+			overlapY := (n.Y < other.Y+other.Height) && (n.Y+n.Height > other.Y)
+			if overlapX && overlapY {
+				t.Errorf("Newly expanded nodes %s and %s overlap: (%f,%f) vs (%f,%f)", n.ID, other.ID, n.X, n.Y, other.X, other.Y)
+			}
+		}
+	}
+}

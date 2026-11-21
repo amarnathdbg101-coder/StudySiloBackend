@@ -38,33 +38,73 @@ func (r *quizRepo) CreateQuizWithQuestions(ctx context.Context, quiz *model.Quiz
 	}
 	defer tx.Rollback(ctx)
 
-	// 1. Insert Quiz
+	testType := quiz.TestType
+	if testType == "" {
+		testType = "mcq"
+	}
+
+	// 1. Insert Quiz with test_type
 	quizQuery := `
-		INSERT INTO quizzes (user_id, course_id, note_id, title, topic, difficulty, total_questions, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+		INSERT INTO quizzes (user_id, course_id, note_id, title, topic, difficulty, test_type, total_questions, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
 		RETURNING id, created_at
 	`
 	if err := tx.QueryRow(ctx, quizQuery,
 		quiz.UserID, quiz.CourseID, quiz.NoteID,
-		quiz.Title, quiz.Topic, quiz.Difficulty, len(questions),
+		quiz.Title, quiz.Topic, quiz.Difficulty, testType, len(questions),
 	).Scan(&quiz.ID, &quiz.CreatedAt); err != nil {
-		return fmt.Errorf("failed to insert quiz: %w", err)
+		// Fallback for legacy DB schema without test_type column
+		legacyQuizQuery := `
+			INSERT INTO quizzes (user_id, course_id, note_id, title, topic, difficulty, total_questions, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+			RETURNING id, created_at
+		`
+		if legacyErr := tx.QueryRow(ctx, legacyQuizQuery,
+			quiz.UserID, quiz.CourseID, quiz.NoteID,
+			quiz.Title, quiz.Topic, quiz.Difficulty, len(questions),
+		).Scan(&quiz.ID, &quiz.CreatedAt); legacyErr != nil {
+			return fmt.Errorf("failed to insert quiz: %w", err)
+		}
 	}
 
-	// 2. Insert Questions
+	// 2. Insert Questions (Supporting both MCQ and Subjective with rubric and model answers)
 	qQuery := `
-		INSERT INTO quiz_questions (quiz_id, question_text, options, correct_option_index, explanation, trap_warning, difficulty, topic, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+		INSERT INTO quiz_questions (quiz_id, question_type, question_text, options, correct_option_index, explanation, trap_warning, model_answer, rubric, max_marks, difficulty, topic, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
 		RETURNING id, created_at
 	`
 	for _, q := range questions {
 		q.QuizID = quiz.ID
+		if q.QuestionType == "" {
+			q.QuestionType = "mcq"
+		}
+		if q.MaxMarks <= 0 {
+			if q.QuestionType == "subjective" {
+				q.MaxMarks = 5
+			} else {
+				q.MaxMarks = 1
+			}
+		}
 		optJSON, _ := json.Marshal(q.Options)
+		rubricJSON, _ := json.Marshal(q.Rubric)
+
 		if err := tx.QueryRow(ctx, qQuery,
-			quiz.ID, q.QuestionText, optJSON, q.CorrectOptionIndex,
-			q.Explanation, q.TrapWarning, q.Difficulty, q.Topic,
+			quiz.ID, q.QuestionType, q.QuestionText, optJSON, q.CorrectOptionIndex,
+			q.Explanation, q.TrapWarning, q.ModelAnswer, rubricJSON, q.MaxMarks,
+			q.Difficulty, q.Topic,
 		).Scan(&q.ID, &q.CreatedAt); err != nil {
-			return fmt.Errorf("failed to insert question: %w", err)
+			// Fallback for legacy schema
+			legacyQQuery := `
+				INSERT INTO quiz_questions (quiz_id, question_text, options, correct_option_index, explanation, trap_warning, difficulty, topic, created_at)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+				RETURNING id, created_at
+			`
+			if lErr := tx.QueryRow(ctx, legacyQQuery,
+				quiz.ID, q.QuestionText, optJSON, q.CorrectOptionIndex,
+				q.Explanation, q.TrapWarning, q.Difficulty, q.Topic,
+			).Scan(&q.ID, &q.CreatedAt); lErr != nil {
+				return fmt.Errorf("failed to insert question: %w", err)
+			}
 		}
 	}
 
@@ -78,14 +118,14 @@ func (r *quizRepo) CreateQuizWithQuestions(ctx context.Context, quiz *model.Quiz
 
 func (r *quizRepo) GetQuizByID(ctx context.Context, id, userID string) (*model.Quiz, error) {
 	query := `
-		SELECT id, user_id, course_id, note_id, title, topic, difficulty, total_questions, created_at
+		SELECT id, user_id, course_id, note_id, title, topic, difficulty, COALESCE(test_type, 'mcq'), total_questions, created_at
 		FROM quizzes
 		WHERE id = $1 AND user_id = $2
 	`
 	q := &model.Quiz{}
 	err := r.db.QueryRow(ctx, query, id, userID).Scan(
 		&q.ID, &q.UserID, &q.CourseID, &q.NoteID,
-		&q.Title, &q.Topic, &q.Difficulty, &q.TotalQuestions,
+		&q.Title, &q.Topic, &q.Difficulty, &q.TestType, &q.TotalQuestions,
 		&q.CreatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -95,9 +135,11 @@ func (r *quizRepo) GetQuizByID(ctx context.Context, id, userID string) (*model.Q
 		return nil, fmt.Errorf("failed to query quiz: %w", err)
 	}
 
-	// Load questions
+	// Load questions with both MCQ and Subjective attributes
 	qqQuery := `
-		SELECT id, quiz_id, question_text, options, correct_option_index, explanation, trap_warning, difficulty, topic, created_at
+		SELECT id, quiz_id, COALESCE(question_type, 'mcq'), question_text, options, correct_option_index, 
+		       explanation, trap_warning, COALESCE(model_answer, ''), COALESCE(rubric, '[]'), COALESCE(max_marks, 1),
+		       difficulty, topic, created_at
 		FROM quiz_questions
 		WHERE quiz_id = $1
 		ORDER BY created_at ASC
@@ -111,15 +153,17 @@ func (r *quizRepo) GetQuizByID(ctx context.Context, id, userID string) (*model.Q
 	questions := []*model.QuizQuestion{}
 	for rows.Next() {
 		qq := &model.QuizQuestion{}
-		var optJSON []byte
+		var optJSON, rubricJSON []byte
 		if err := rows.Scan(
-			&qq.ID, &qq.QuizID, &qq.QuestionText, &optJSON,
+			&qq.ID, &qq.QuizID, &qq.QuestionType, &qq.QuestionText, &optJSON,
 			&qq.CorrectOptionIndex, &qq.Explanation, &qq.TrapWarning,
+			&qq.ModelAnswer, &rubricJSON, &qq.MaxMarks,
 			&qq.Difficulty, &qq.Topic, &qq.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(optJSON, &qq.Options)
+		_ = json.Unmarshal(rubricJSON, &qq.Rubric)
 		questions = append(questions, qq)
 	}
 	q.Questions = questions
@@ -129,7 +173,7 @@ func (r *quizRepo) GetQuizByID(ctx context.Context, id, userID string) (*model.Q
 
 func (r *quizRepo) ListQuizzesByUser(ctx context.Context, userID string) ([]*model.Quiz, error) {
 	query := `
-		SELECT id, user_id, course_id, note_id, title, topic, difficulty, total_questions, created_at
+		SELECT id, user_id, course_id, note_id, title, topic, difficulty, COALESCE(test_type, 'mcq'), total_questions, created_at
 		FROM quizzes
 		WHERE user_id = $1
 		ORDER BY created_at DESC
@@ -145,7 +189,7 @@ func (r *quizRepo) ListQuizzesByUser(ctx context.Context, userID string) ([]*mod
 		q := &model.Quiz{Questions: []*model.QuizQuestion{}}
 		if err := rows.Scan(
 			&q.ID, &q.UserID, &q.CourseID, &q.NoteID,
-			&q.Title, &q.Topic, &q.Difficulty, &q.TotalQuestions,
+			&q.Title, &q.Topic, &q.Difficulty, &q.TestType, &q.TotalQuestions,
 			&q.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -153,10 +197,12 @@ func (r *quizRepo) ListQuizzesByUser(ctx context.Context, userID string) ([]*mod
 		quizzes = append(quizzes, q)
 	}
 
-	// Efficiently attach questions to each quiz
+	// Attach questions
 	for _, q := range quizzes {
 		qqQuery := `
-			SELECT id, quiz_id, question_text, options, correct_option_index, explanation, trap_warning, difficulty, topic, created_at
+			SELECT id, quiz_id, COALESCE(question_type, 'mcq'), question_text, options, correct_option_index, 
+			       explanation, trap_warning, COALESCE(model_answer, ''), COALESCE(rubric, '[]'), COALESCE(max_marks, 1),
+			       difficulty, topic, created_at
 			FROM quiz_questions
 			WHERE quiz_id = $1
 			ORDER BY created_at ASC
@@ -165,13 +211,15 @@ func (r *quizRepo) ListQuizzesByUser(ctx context.Context, userID string) ([]*mod
 		if qErr == nil {
 			for qRows.Next() {
 				qq := &model.QuizQuestion{}
-				var optJSON []byte
+				var optJSON, rubricJSON []byte
 				if err := qRows.Scan(
-					&qq.ID, &qq.QuizID, &qq.QuestionText, &optJSON,
+					&qq.ID, &qq.QuizID, &qq.QuestionType, &qq.QuestionText, &optJSON,
 					&qq.CorrectOptionIndex, &qq.Explanation, &qq.TrapWarning,
+					&qq.ModelAnswer, &rubricJSON, &qq.MaxMarks,
 					&qq.Difficulty, &qq.Topic, &qq.CreatedAt,
 				); err == nil {
 					_ = json.Unmarshal(optJSON, &qq.Options)
+					_ = json.Unmarshal(rubricJSON, &qq.Rubric)
 					q.Questions = append(q.Questions, qq)
 				}
 			}
@@ -238,4 +286,3 @@ func (r *quizRepo) DeleteQuiz(ctx context.Context, id, userID string) error {
 	}
 	return nil
 }
-

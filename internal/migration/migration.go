@@ -206,6 +206,13 @@ func EnsureSchemaColumns(pool *pgxpool.Pool) error {
 			ARRAY['Correlation vs Causation', 'Bayes Theorem Prior Probability Fallacy', 'Entropy Increase in Closed Systems']
 		)
 		ON CONFLICT (exam_code) DO NOTHING;`,
+		// Subjective Exam Questions & Rubric Grading
+		`ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS question_type VARCHAR(30) NOT NULL DEFAULT 'mcq';`,
+		`ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS model_answer TEXT NOT NULL DEFAULT '';`,
+		`ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS rubric JSONB NOT NULL DEFAULT '[]'::jsonb;`,
+		`ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS max_marks INT NOT NULL DEFAULT 1;`,
+		`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS test_type VARCHAR(30) NOT NULL DEFAULT 'mcq';`,
+		`CREATE INDEX IF NOT EXISTS idx_quiz_questions_type ON quiz_questions (quiz_id, question_type);`,
 	}
 
 	for index, q := range queries {

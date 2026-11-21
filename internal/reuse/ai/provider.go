@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 )
@@ -525,8 +524,7 @@ func (g *GeminiProvider) GenerateStructured(ctx context.Context, systemPrompt, u
 		return err
 	}
 
-	cleanJSON := cleanJSONString(text)
-	return json.Unmarshal([]byte(cleanJSON), target)
+	return UnmarshalJSONSafe([]byte(text), target)
 }
 
 // ---------------------------------------------------------------------------
@@ -734,8 +732,7 @@ func (o *OpenAIProvider) GenerateStructured(ctx context.Context, systemPrompt, u
 		return err
 	}
 
-	cleanJSON := cleanJSONString(text)
-	return json.Unmarshal([]byte(cleanJSON), target)
+	return UnmarshalJSONSafe([]byte(text), target)
 }
 
 // ---------------------------------------------------------------------------
@@ -903,40 +900,7 @@ func (o *Orchestrator) GenerateStructured(ctx context.Context, systemPrompt, use
 }
 
 func cleanJSONString(raw string) string {
-	s := strings.TrimSpace(raw)
-
-	// Extract content from markdown fence if present anywhere in text
-	if idx := strings.Index(s, "```json"); idx != -1 {
-		s = s[idx+len("```json"):]
-		if end := strings.Index(s, "```"); end != -1 {
-			s = s[:end]
-		}
-	} else if idx := strings.Index(s, "```"); idx != -1 {
-		s = s[idx+len("```"):]
-		if end := strings.Index(s, "```"); end != -1 {
-			s = s[:end]
-		}
-	}
-
-	// Extract innermost balanced outer JSON object or array
-	firstBrace := strings.IndexAny(s, "{[")
-	if firstBrace != -1 {
-		var lastBrace int
-		if s[firstBrace] == '{' {
-			lastBrace = strings.LastIndex(s, "}")
-		} else {
-			lastBrace = strings.LastIndex(s, "]")
-		}
-		if lastBrace != -1 && lastBrace > firstBrace {
-			s = s[firstBrace : lastBrace+1]
-		}
-	}
-
-	// Strip trailing commas before closing braces/brackets (common LLM JSON error)
-	reTrailingComma := regexp.MustCompile(`,\s*([}\]])`)
-	s = reTrailingComma.ReplaceAllString(s, "$1")
-
-	return strings.TrimSpace(s)
+	return RepairAndCleanJSON(raw)
 }
 
 func extractCleanPrompt(raw string) string {

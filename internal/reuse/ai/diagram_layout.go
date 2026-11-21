@@ -676,3 +676,71 @@ func resolveCollisions(nodes []dto.GraphNode) {
 		}
 	}
 }
+
+// ComputeExpandedNodesLayout calculates clean, non-overlapping 2D coordinates for newly expanded
+// nodes around their parent node. This prevents nodes from stacking on (0, 0) and avoids mobile CPU lag.
+func ComputeExpandedNodesLayout(newNodes []dto.GraphNode, parentX, parentY, parentW, parentH float64, canvasW, canvasH float64) {
+	if len(newNodes) == 0 {
+		return
+	}
+
+	if canvasW <= 0 {
+		canvasW = 2800.0
+	}
+	if canvasH <= 0 {
+		canvasH = 2000.0
+	}
+
+	// 1. Calculate node dimensions
+	for i := range newNodes {
+		calculateNodeDimensions(&newNodes[i])
+	}
+
+	// 2. Determine parent center and default fallback if parent coords missing
+	if parentW <= 0 {
+		parentW = 180.0
+	}
+	if parentH <= 0 {
+		parentH = 55.0
+	}
+	if parentX == 0 && parentY == 0 {
+		parentX = (canvasW / 2.0) - (parentW / 2.0)
+		parentY = (canvasH / 2.0) - (parentH / 2.0)
+	}
+
+	parentCenterX := parentX + (parentW / 2.0)
+	parentCenterY := parentY + (parentH / 2.0)
+
+	// 3. Determine base outward angle from canvas center away from parent
+	dx := parentCenterX - (canvasW / 2.0)
+	dy := parentCenterY - (canvasH / 2.0)
+	baseAngle := math.Pi / 2.0 // default downward
+	if math.Hypot(dx, dy) > 40.0 {
+		baseAngle = math.Atan2(dy, dx)
+	}
+
+	// 4. Distribute new nodes in an arc facing outward
+	k := len(newNodes)
+	radius := 230.0 + float64(k)*15.0
+	spread := math.Min(1.3, 0.38*float64(k))
+
+	for i := range newNodes {
+		angle := baseAngle
+		if k > 1 {
+			angle = (baseAngle - spread/2.0) + (spread * float64(i) / float64(k-1))
+		}
+
+		nx := parentCenterX + radius*math.Cos(angle) - (newNodes[i].Width / 2.0)
+		ny := parentCenterY + radius*math.Sin(angle) - (newNodes[i].Height / 2.0)
+
+		// Clamp within canvas boundaries with safety margin
+		nx = math.Max(60.0, math.Min(canvasW-newNodes[i].Width-60.0, nx))
+		ny = math.Max(60.0, math.Min(canvasH-newNodes[i].Height-60.0, ny))
+
+		newNodes[i].X = nx
+		newNodes[i].Y = ny
+	}
+
+	// 5. Relaxation collision avoidance among the newly added nodes
+	resolveCollisions(newNodes)
+}

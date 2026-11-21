@@ -102,9 +102,16 @@ func (s *quizService) GenerateQuiz(ctx context.Context, userID string, req dto.G
 	if qCount > 15 {
 		qCount = 15
 	}
-	difficulty := req.Difficulty
+	difficulty := strings.ToLower(strings.TrimSpace(req.Difficulty))
 	if difficulty == "" {
 		difficulty = "adaptive"
+	}
+
+	testType := strings.ToLower(strings.TrimSpace(req.TestType))
+	if testType == "" {
+		testType = "mcq"
+	} else if testType != "mcq" && testType != "subjective" && testType != "mixed" {
+		testType = "mcq"
 	}
 
 	weakContext := ""
@@ -112,12 +119,97 @@ func (s *quizService) GenerateQuiz(ctx context.Context, userID string, req dto.G
 		weakContext = fmt.Sprintf("\nStudent's identified weak areas to reinforce: %s", strings.Join(profile.WeakTopics, ", "))
 	}
 
-	systemPrompt := `You are an elite, adaptive pedagogical quiz generator for academic competitive & university semester exams.
+	var systemPrompt string
+	switch testType {
+	case "subjective":
+		systemPrompt = `You are an elite, rigorous university professor and competitive exam creator.
+Generate an in-depth subjective examination strictly matching this JSON schema:
+{
+  "questions": [
+    {
+      "question_text": "Detailed, thought-provoking academic problem requiring conceptual explanation, derivation, or analytical reasoning with LaTeX ($...$ or $$...$$)",
+      "question_type": "subjective",
+      "options": [],
+      "correct_option_index": -1,
+      "max_marks": 5,
+      "model_answer": "Complete, exemplary full-marks academic answer detailing definitions, step-by-step logic, equations, and edge cases",
+      "rubric": [
+        "2 marks: Accurate definition and foundational principles",
+        "2 marks: Analytical derivation/explanation with correct equations",
+        "1 mark: Practical considerations, constraints, or real-world example"
+      ],
+      "explanation": "In-depth pedagogical proof, conceptual background, and breakdown",
+      "trap_warning": "Common mistakes, omissions, or faulty assumptions students make on this problem",
+      "difficulty": "easy | medium | hard",
+      "topic": "Specific sub-topic"
+    }
+  ]
+}
+RULES:
+1. Generate EXACTLY the requested question count.
+2. Every question MUST be 'question_type': 'subjective'.
+3. 'options' MUST be an empty array [] and 'correct_option_index' MUST be -1.
+4. 'model_answer' MUST be comprehensive, academically rigorous, and accurate.
+5. 'rubric' MUST provide clear marks distribution criteria totaling 'max_marks'.
+6. 'max_marks' must be 5 (or 10 for hard analytical problems).
+7. Return ONLY valid JSON.`
+
+	case "mixed":
+		systemPrompt = `You are an elite, comprehensive academic examination creator.
+Generate a balanced examination featuring BOTH Multiple Choice Questions (MCQ) and In-Depth Subjective Questions strictly matching this JSON schema:
+{
+  "questions": [
+    {
+      "question_text": "Problem text with clean LaTeX equations ($...$ or $$...$$) where applicable",
+      "question_type": "mcq",
+      "options": [
+        "A) Plausible option text",
+        "B) Plausible option text",
+        "C) Plausible option text",
+        "D) Plausible option text"
+      ],
+      "correct_option_index": 0,
+      "max_marks": 1,
+      "model_answer": "",
+      "rubric": [],
+      "explanation": "Pedagogical derivation and conceptual proof",
+      "trap_warning": "Specific misconception or examiner trap",
+      "difficulty": "easy | medium | hard",
+      "topic": "Specific sub-topic"
+    },
+    {
+      "question_text": "In-depth analytical or derivation question requiring student to write a descriptive response",
+      "question_type": "subjective",
+      "options": [],
+      "correct_option_index": -1,
+      "max_marks": 5,
+      "model_answer": "Full exemplary answer detailing logic, formulas, and proofs",
+      "rubric": [
+        "2 marks: Core definition and governing axioms",
+        "2 marks: Step-by-step logical analysis",
+        "1 mark: Boundary cases and conclusions"
+      ],
+      "explanation": "In-depth pedagogical proof and context",
+      "trap_warning": "Common conceptual or derivation traps",
+      "difficulty": "easy | medium | hard",
+      "topic": "Specific sub-topic"
+    }
+  ]
+}
+RULES:
+1. Generate EXACTLY the requested question count (~60% MCQ, ~40% Subjective).
+2. For MCQ: exactly 4 options, valid correct_option_index (0-3), max_marks: 1.
+3. For Subjective: options=[], correct_option_index=-1, detailed model_answer, clear rubric criteria, max_marks: 5 (or 10 for hard).
+4. Return ONLY valid JSON.`
+
+	default: // "mcq"
+		systemPrompt = `You are an elite, adaptive pedagogical quiz generator for academic competitive & university semester exams.
 Generate a structured quiz strictly matching this JSON schema:
 {
   "questions": [
     {
       "question_text": "Detailed question text with clean LaTeX equations ($...$ or $$...$$) where applicable",
+      "question_type": "mcq",
       "options": [
         "A) Plausible option text with formulas/terms",
         "B) Plausible option text",
@@ -125,6 +217,7 @@ Generate a structured quiz strictly matching this JSON schema:
         "D) Plausible option text"
       ],
       "correct_option_index": 0,
+      "max_marks": 1,
       "explanation": "In-depth pedagogical explanation with step-by-step mathematical derivation and conceptual proof",
       "trap_warning": "Specific misconception, calculation pitfall, or trick examiners use for this problem",
       "difficulty": "easy | medium | hard",
@@ -138,11 +231,24 @@ RULES:
 3. correct_option_index must be 0, 1, 2, or 3 corresponding to the correct option.
 4. Always provide a rich explanation with clean LaTeX formulas and a high-yield trap warning.
 5. Return ONLY valid JSON.`
+	}
+
+	diffInstruction := ""
+	switch difficulty {
+	case "easy":
+		diffInstruction = "\nDifficulty Instruction: Emphasize fundamental principles, direct definitions, foundational theorems, and essential standard scenarios."
+	case "medium":
+		diffInstruction = "\nDifficulty Instruction: Emphasize multi-step problem solving, comparison between approaches, edge cases, and practical trade-offs."
+	case "hard":
+		diffInstruction = "\nDifficulty Instruction: Emphasize deep synthesis, rigorous derivations, non-linear edge cases, advanced optimization, and examiner traps."
+	default:
+		diffInstruction = "\nDifficulty Instruction: Adaptive progression from foundational to advanced concepts."
+	}
 	aiLanguage := middleware.GetAILanguage(ctx)
 	systemPrompt += ai.BuildLanguageInstruction(aiLanguage)
 
-	userPrompt := fmt.Sprintf("Topic: %s\nTarget Difficulty: %s\nExact Question Count: %d%s\nTarget Exam: %s\nAcademic Level: %s",
-		req.Topic, difficulty, qCount, weakContext, profile.TargetExam, profile.AcademicLevel)
+	userPrompt := fmt.Sprintf("Topic: %s\nTest Format: %s\nTarget Difficulty: %s%s\nExact Question Count: %d%s\nTarget Exam: %s\nAcademic Level: %s",
+		req.Topic, testType, difficulty, diffInstruction, qCount, weakContext, profile.TargetExam, profile.AcademicLevel)
 
 	var questions []*model.QuizQuestion
 
@@ -186,6 +292,7 @@ RULES:
 			questions = parseAIQuizQuestions(aiText, req.Topic, difficulty)
 			zap.L().Info("Quiz AI generation finished",
 				zap.String("topic", req.Topic),
+				zap.String("test_type", testType),
 				zap.Int("questions_parsed", len(questions)),
 			)
 		}
@@ -193,7 +300,7 @@ RULES:
 
 	// If AI output had missing items or failed, fill up to qCount with domain-intelligent questions
 	if len(questions) < qCount {
-		fallbacks := generateDomainQuestions(req.Topic, difficulty, qCount)
+		fallbacks := generateDomainQuestions(req.Topic, difficulty, testType, qCount)
 		for _, f := range fallbacks {
 			if len(questions) >= qCount {
 				break
@@ -217,13 +324,48 @@ RULES:
 		if q.Difficulty == "" {
 			q.Difficulty = difficulty
 		}
+		if q.QuestionType == "" {
+			if len(q.Options) >= 2 {
+				q.QuestionType = "mcq"
+			} else {
+				q.QuestionType = "subjective"
+			}
+		}
+		if q.QuestionType == "subjective" {
+			if q.MaxMarks <= 0 {
+				if q.Difficulty == "hard" {
+					q.MaxMarks = 10
+				} else {
+					q.MaxMarks = 5
+				}
+			}
+			q.CorrectOptionIndex = -1
+			if q.Options == nil {
+				q.Options = []string{}
+			}
+		} else {
+			if q.MaxMarks <= 0 {
+				q.MaxMarks = 1
+			}
+		}
 		q.QuestionText = ai.SanitizeLatex(q.QuestionText)
 		for optIdx := range q.Options {
 			q.Options[optIdx] = ai.SanitizeLatex(q.Options[optIdx])
 		}
 		q.Explanation = ai.SanitizeLatex(q.Explanation)
 		q.TrapWarning = ai.SanitizeLatex(q.TrapWarning)
+		q.ModelAnswer = ai.SanitizeLatex(q.ModelAnswer)
+		for rIdx := range q.Rubric {
+			q.Rubric[rIdx] = ai.SanitizeLatex(q.Rubric[rIdx])
+		}
 		questions[i] = q
+	}
+
+	titlePrefix := "Adaptive Quiz"
+	if testType == "subjective" {
+		titlePrefix = "Subjective Examination"
+	} else if testType == "mixed" {
+		titlePrefix = "Comprehensive Exam (MCQ + Subjective)"
 	}
 
 	quiz := &model.Quiz{
@@ -231,9 +373,10 @@ RULES:
 		UserID:         userID,
 		CourseID:       req.CourseID,
 		NoteID:         req.NoteID,
-		Title:          fmt.Sprintf("Adaptive Quiz: %s", req.Topic),
+		Title:          fmt.Sprintf("%s: %s", titlePrefix, req.Topic),
 		Topic:          req.Topic,
 		Difficulty:     difficulty,
+		TestType:       testType,
 		TotalQuestions: len(questions),
 		CreatedAt:      time.Now(),
 		Questions:      questions,
@@ -336,41 +479,151 @@ func (s *quizService) SubmitQuiz(ctx context.Context, id, userID string, req dto
 		qMap[q.ID] = q
 	}
 
-	score := 0
-	totalScore := len(quiz.Questions)
-	var userAnswers []model.UserAnswer
-	var feedback []dto.QuestionFeedback
-	var weakTopics []string
-	var strongTopics []string
+	type evalResult struct {
+		score            int
+		maxMarks         int
+		isCorrect        bool
+		feedback         string
+		keyPointsCovered []string
+		keyPointsMissed  []string
+	}
 
-	for _, ans := range req.Answers {
+	evalResults := make([]evalResult, len(req.Answers))
+
+	// ⚡ Go Concurrency: Grade subjective questions concurrently using sync.WaitGroup
+	// Common Go Concurrency Mistakes Avoided:
+	// 1. Calling wg.Add(1) INSIDE goroutine causes a race condition where wg.Wait() returns early.
+	//    Solution: Call wg.Add(1) strictly before spawning go func().
+	// 2. Data race when appending to a shared slice without mutex locks.
+	//    Solution: Pre-allocate evalResults with exact length len(req.Answers) and assign to distinct index evalResults[i].
+	// 3. Capturing loop iteration variables by reference (in older Go versions).
+	//    Solution: Pass index, question pointer, and student answer as value parameters to the goroutine.
+	var wg sync.WaitGroup
+
+	for i, ans := range req.Answers {
 		q, exists := qMap[ans.QuestionID]
 		if !exists {
 			continue
 		}
 
-		isCorrect := (ans.SelectedOption == q.CorrectOptionIndex)
-		if isCorrect {
-			score++
+		maxMarks := q.MaxMarks
+		if maxMarks <= 0 {
+			if q.QuestionType == "subjective" {
+				maxMarks = 5
+			} else {
+				maxMarks = 1
+			}
+		}
+
+		if q.QuestionType == "subjective" {
+			wg.Add(1)
+			go func(idx int, question *model.QuizQuestion, studentAns string, qMaxMarks int) {
+				defer wg.Done()
+				score, isCorrect, feedback, covered, missed := s.evaluateSubjectiveAnswer(ctx, question, studentAns)
+				if score > qMaxMarks {
+					score = qMaxMarks
+				}
+				evalResults[idx] = evalResult{
+					score:            score,
+					maxMarks:         qMaxMarks,
+					isCorrect:        isCorrect,
+					feedback:         feedback,
+					keyPointsCovered: covered,
+					keyPointsMissed:  missed,
+				}
+			}(i, q, ans.AnswerText, maxMarks)
+		} else {
+			// Fast deterministic grading for Multiple Choice Questions (MCQ)
+			isCorrect := (ans.SelectedOption == q.CorrectOptionIndex)
+			score := 0
+			if isCorrect {
+				score = maxMarks
+			}
+			evalResults[i] = evalResult{
+				score:     score,
+				maxMarks:  maxMarks,
+				isCorrect: isCorrect,
+			}
+		}
+	}
+	wg.Wait()
+
+	// Compute overall total max score for the quiz
+	totalScore := 0
+	for _, q := range quiz.Questions {
+		mm := q.MaxMarks
+		if mm <= 0 {
+			if q.QuestionType == "subjective" {
+				mm = 5
+			} else {
+				mm = 1
+			}
+		}
+		totalScore += mm
+	}
+	if totalScore <= 0 {
+		totalScore = len(quiz.Questions)
+	}
+
+	score := 0
+	var userAnswers []model.UserAnswer
+	var feedback []dto.QuestionFeedback
+	var weakTopics []string
+	var strongTopics []string
+
+	for i, ans := range req.Answers {
+		q, exists := qMap[ans.QuestionID]
+		if !exists {
+			continue
+		}
+		res := evalResults[i]
+		score += res.score
+
+		if res.isCorrect {
 			strongTopics = append(strongTopics, q.Topic)
 		} else {
 			weakTopics = append(weakTopics, q.Topic)
 		}
 
+		qType := q.QuestionType
+		if qType == "" {
+			if len(q.Options) >= 2 {
+				qType = "mcq"
+			} else {
+				qType = "subjective"
+			}
+		}
+
 		userAnswers = append(userAnswers, model.UserAnswer{
-			QuestionID:     ans.QuestionID,
-			SelectedOption: ans.SelectedOption,
-			IsCorrect:      isCorrect,
+			QuestionID:       ans.QuestionID,
+			QuestionType:     qType,
+			SelectedOption:   ans.SelectedOption,
+			AnswerText:       ans.AnswerText,
+			Score:            res.score,
+			MaxMarks:         res.maxMarks,
+			IsCorrect:        res.isCorrect,
+			Feedback:         res.feedback,
+			KeyPointsCovered: res.keyPointsCovered,
+			KeyPointsMissed:  res.keyPointsMissed,
 		})
 
 		feedback = append(feedback, dto.QuestionFeedback{
 			QuestionID:         q.ID,
+			QuestionType:       qType,
 			QuestionText:       q.QuestionText,
 			SelectedOption:     ans.SelectedOption,
 			CorrectOptionIndex: q.CorrectOptionIndex,
-			IsCorrect:          isCorrect,
+			StudentAnswer:      ans.AnswerText,
+			ModelAnswer:        q.ModelAnswer,
+			Score:              res.score,
+			MaxMarks:           res.maxMarks,
+			IsCorrect:          res.isCorrect,
 			Explanation:        q.Explanation,
 			TrapWarning:        q.TrapWarning,
+			Feedback:           res.feedback,
+			Rubric:             q.Rubric,
+			KeyPointsCovered:   res.keyPointsCovered,
+			KeyPointsMissed:    res.keyPointsMissed,
 		})
 	}
 
@@ -515,6 +768,153 @@ func (s *quizService) UpdateCognitiveProfile(ctx context.Context, userID string,
 		return nil, err
 	}
 	return profile, nil
+}
+
+// ---------------------------------------------------------------------------
+// Academic Subjective Answer Evaluation (AI + Heuristic Fallback)
+// ---------------------------------------------------------------------------
+
+func (s *quizService) evaluateSubjectiveAnswer(
+	ctx context.Context,
+	q *model.QuizQuestion,
+	studentAnswer string,
+) (score int, isCorrect bool, feedback string, covered []string, missed []string) {
+	trimmed := strings.TrimSpace(studentAnswer)
+	maxMarks := q.MaxMarks
+	if maxMarks <= 0 {
+		maxMarks = 5
+	}
+
+	if trimmed == "" {
+		return 0, false, "Question left blank. No marks awarded.", nil, []string{"Candidate provided no response"}
+	}
+
+	// 1. Rigorous evaluation using AI Orchestrator
+	if s.orchestrator != nil {
+		rubricText := strings.Join(q.Rubric, "\n- ")
+		if rubricText != "" {
+			rubricText = "- " + rubricText
+		} else {
+			rubricText = fmt.Sprintf("- Accuracy and conceptual completeness (%d marks)\n- Clarity and precision of academic explanation", maxMarks)
+		}
+
+		systemPrompt := `You are an elite academic professor and strict examination evaluator.
+Grade the student's written response against the official model answer and grading rubric.
+Return ONLY valid JSON matching this schema:
+{
+  "score": <integer from 0 to MAX_MARKS>,
+  "is_passing": <boolean, true if score >= 50% of max marks>,
+  "feedback": "<2-3 sentence academic evaluation highlighting strong points and explaining mark deductions>",
+  "key_points_covered": ["point 1 accurately explained", "point 2 mentioned"],
+  "key_points_missed": ["missing derivation / edge case / proof"]
+}`
+		userPrompt := fmt.Sprintf("QUESTION: %s\nMAX MARKS: %d\nMODEL ANSWER: %s\nGRADING RUBRIC:\n%s\n\nSTUDENT'S SUBMITTED ANSWER:\n%s",
+			q.QuestionText, maxMarks, q.ModelAnswer, rubricText, trimmed)
+
+		aiText, err := s.orchestrator.GenerateText(ctx, systemPrompt, userPrompt)
+		if err == nil && strings.TrimSpace(aiText) != "" {
+			cleaned := cleanJSON(aiText)
+			var parsed struct {
+				Score            int      `json:"score"`
+				IsPassing        bool     `json:"is_passing"`
+				Feedback         string   `json:"feedback"`
+				KeyPointsCovered []string `json:"key_points_covered"`
+				KeyPointsMissed  []string `json:"key_points_missed"`
+			}
+			if err := json.Unmarshal([]byte(cleaned), &parsed); err == nil {
+				if parsed.Score < 0 {
+					parsed.Score = 0
+				}
+				if parsed.Score > maxMarks {
+					parsed.Score = maxMarks
+				}
+				isPassing := parsed.IsPassing
+				if parsed.Score >= (maxMarks+1)/2 {
+					isPassing = true
+				}
+				return parsed.Score, isPassing, parsed.Feedback, parsed.KeyPointsCovered, parsed.KeyPointsMissed
+			}
+		}
+	}
+
+	// 2. Resilient Heuristic Fallback (deterministic keyword & concept density grading)
+	return evaluateSubjectiveHeuristic(q, trimmed, maxMarks)
+}
+
+func evaluateSubjectiveHeuristic(q *model.QuizQuestion, studentAnswer string, maxMarks int) (int, bool, string, []string, []string) {
+	trimmed := strings.TrimSpace(studentAnswer)
+	words := strings.Fields(trimmed)
+	if len(words) < 3 {
+		return 0, false, "Answer is too brief to demonstrate conceptual understanding.", nil, []string{"Insufficient explanation"}
+	}
+
+	lowerAns := strings.ToLower(trimmed)
+
+	// Extract key technical tokens from ModelAnswer and Rubric
+	combinedKeyText := strings.ToLower(q.ModelAnswer + " " + strings.Join(q.Rubric, " "))
+	tokens := strings.Fields(combinedKeyText)
+	stopWords := map[string]bool{
+		"the": true, "and": true, "a": true, "an": true, "in": true, "on": true, "is": true, "of": true,
+		"for": true, "to": true, "with": true, "that": true, "this": true, "it": true, "as": true, "by": true,
+		"are": true, "was": true, "were": true, "be": true, "been": true, "marks": true, "mark": true,
+		"which": true, "from": true, "when": true, "what": true, "how": true, "why": true, "or": true,
+	}
+
+	uniqueKeywords := make(map[string]bool)
+	for _, tok := range tokens {
+		clean := strings.Trim(tok, ".,;:()[]{}\"'`$-/*")
+		if len(clean) >= 4 && !stopWords[clean] {
+			uniqueKeywords[clean] = true
+		}
+	}
+
+	matchedKeywords := 0
+	var covered []string
+	var missed []string
+
+	for kw := range uniqueKeywords {
+		if strings.Contains(lowerAns, kw) {
+			matchedKeywords++
+			if len(covered) < 4 {
+				covered = append(covered, fmt.Sprintf("Addressed concept '%s'", kw))
+			}
+		} else {
+			if len(missed) < 3 {
+				missed = append(missed, fmt.Sprintf("Missing elaboration on '%s'", kw))
+			}
+		}
+	}
+
+	ratio := 0.0
+	if len(uniqueKeywords) > 0 {
+		ratio = float64(matchedKeywords) / float64(len(uniqueKeywords))
+	} else {
+		ratio = float64(len(words)) / 50.0
+		if ratio > 1.0 {
+			ratio = 1.0
+		}
+	}
+
+	score := int(float64(maxMarks) * ratio * 1.25)
+	if len(words) >= 20 && score == 0 {
+		score = 1
+	}
+	if score > maxMarks {
+		score = maxMarks
+	}
+
+	isPassing := score >= (maxMarks+1)/2
+
+	var feedback string
+	if score == maxMarks {
+		feedback = "Outstanding academic response! Core principles, mechanisms, and expected technical terms were thoroughly explained."
+	} else if isPassing {
+		feedback = fmt.Sprintf("Satisfactory answer (%d/%d marks). Demonstrates solid understanding, though certain technical nuances or edge cases were missed.", score, maxMarks)
+	} else {
+		feedback = fmt.Sprintf("Partial response (%d/%d marks). Core theoretical tenets and key analytical concepts specified in the rubric were incomplete.", score, maxMarks)
+	}
+
+	return score, isPassing, feedback, covered, missed
 }
 
 // ---------------------------------------------------------------------------
@@ -688,8 +1088,10 @@ func parseAIQuizQuestions(raw, defaultTopic, defaultDifficulty string) []*model.
 	var results []*model.QuizQuestion
 	for _, m := range rawList {
 		q := extractQuestionFromMap(m, defaultTopic, defaultDifficulty)
-		if q != nil && q.QuestionText != "" && len(q.Options) >= 2 {
-			results = append(results, q)
+		if q != nil && q.QuestionText != "" {
+			if q.QuestionType == "subjective" || len(q.Options) >= 2 {
+				results = append(results, q)
+			}
 		}
 	}
 
@@ -710,6 +1112,13 @@ func extractQuestionFromMap(m map[string]interface{}, defaultTopic, defaultDiffi
 		return nil
 	}
 
+	qType := ""
+	if val, ok := m["question_type"]; ok {
+		if s, ok := val.(string); ok {
+			qType = strings.ToLower(strings.TrimSpace(s))
+		}
+	}
+
 	var options []string
 	for _, k := range []string{"options", "choices", "answers"} {
 		if val, ok := m[k]; ok {
@@ -727,38 +1136,118 @@ func extractQuestionFromMap(m map[string]interface{}, defaultTopic, defaultDiffi
 			}
 		}
 	}
-	if len(options) < 2 {
-		return nil
-	}
 
-	correctIdx := 0
-	foundCorrect := false
-	for _, k := range []string{"correct_option_index", "correct_answer_index", "answer_index", "correct_index", "answer"} {
+	modelAnswer := ""
+	for _, k := range []string{"model_answer", "ideal_answer", "solution_key", "sample_answer"} {
 		if val, ok := m[k]; ok {
-			switch v := val.(type) {
-			case float64:
-				correctIdx = int(v)
-				foundCorrect = true
-			case int:
-				correctIdx = v
-				foundCorrect = true
-			case string:
-				v = strings.TrimSpace(strings.ToUpper(v))
-				if len(v) == 1 && v[0] >= 'A' && v[0] <= 'D' {
-					correctIdx = int(v[0] - 'A')
-					foundCorrect = true
-				} else if idx, err := strconv.Atoi(v); err == nil {
-					correctIdx = idx
-					foundCorrect = true
-				}
-			}
-			if foundCorrect {
+			if s, ok := val.(string); ok {
+				modelAnswer = strings.TrimSpace(s)
 				break
 			}
 		}
 	}
-	if correctIdx < 0 || correctIdx >= len(options) {
-		correctIdx = 0
+
+	var rubric []string
+	if val, ok := m["rubric"]; ok {
+		if slice, ok := val.([]interface{}); ok {
+			for _, item := range slice {
+				if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+					rubric = append(rubric, strings.TrimSpace(s))
+				}
+			}
+		} else if s, ok := val.(string); ok && strings.TrimSpace(s) != "" {
+			rubric = append(rubric, strings.TrimSpace(s))
+		}
+	}
+
+	maxMarks := 0
+	for _, k := range []string{"max_marks", "marks", "points", "weight"} {
+		if val, ok := m[k]; ok {
+			switch v := val.(type) {
+			case float64:
+				maxMarks = int(v)
+			case int:
+				maxMarks = v
+			case string:
+				if idx, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+					maxMarks = idx
+				}
+			}
+			if maxMarks > 0 {
+				break
+			}
+		}
+	}
+
+	if qType == "" {
+		if len(options) >= 2 {
+			qType = "mcq"
+		} else if modelAnswer != "" || len(rubric) > 0 {
+			qType = "subjective"
+		} else {
+			qType = "mcq"
+		}
+	}
+
+	correctIdx := 0
+	if qType == "subjective" {
+		correctIdx = -1
+		options = []string{}
+		if maxMarks <= 0 {
+			if defaultDifficulty == "hard" {
+				maxMarks = 10
+			} else {
+				maxMarks = 5
+			}
+		}
+		if modelAnswer == "" {
+			if val, ok := m["explanation"]; ok {
+				if s, ok := val.(string); ok {
+					modelAnswer = strings.TrimSpace(s)
+				}
+			}
+		}
+		if len(rubric) == 0 {
+			rubric = []string{
+				fmt.Sprintf("Conceptual accuracy and governing axioms (%d marks)", (maxMarks+1)/2),
+				fmt.Sprintf("Analytical reasoning, derivations, and edge cases (%d marks)", maxMarks-(maxMarks+1)/2),
+			}
+		}
+	} else {
+		if len(options) < 2 {
+			return nil
+		}
+		if maxMarks <= 0 {
+			maxMarks = 1
+		}
+		foundCorrect := false
+		for _, k := range []string{"correct_option_index", "correct_answer_index", "answer_index", "correct_index", "answer"} {
+			if val, ok := m[k]; ok {
+				switch v := val.(type) {
+				case float64:
+					correctIdx = int(v)
+					foundCorrect = true
+				case int:
+					correctIdx = v
+					foundCorrect = true
+				case string:
+					v = strings.TrimSpace(strings.ToUpper(v))
+					if len(v) == 1 && v[0] >= 'A' && v[0] <= 'D' {
+						correctIdx = int(v[0] - 'A')
+						foundCorrect = true
+					} else if idx, err := strconv.Atoi(v); err == nil {
+						correctIdx = idx
+						foundCorrect = true
+					}
+				}
+				if foundCorrect {
+					break
+				}
+			}
+		}
+		if correctIdx < 0 || correctIdx >= len(options) {
+			correctIdx = 0
+		}
 	}
 
 	explanation := ""
@@ -803,8 +1292,12 @@ func extractQuestionFromMap(m map[string]interface{}, defaultTopic, defaultDiffi
 
 	return &model.QuizQuestion{
 		QuestionText:       qText,
+		QuestionType:       qType,
 		Options:            options,
 		CorrectOptionIndex: correctIdx,
+		ModelAnswer:        modelAnswer,
+		Rubric:             rubric,
+		MaxMarks:           maxMarks,
 		Explanation:        explanation,
 		TrapWarning:        trapWarning,
 		Difficulty:         diff,
@@ -821,7 +1314,17 @@ type domainQuizTemplate struct {
 	diff    string
 }
 
-func generateDomainQuestions(topic, difficulty string, count int) []*model.QuizQuestion {
+type domainSubjectiveTemplate struct {
+	qFmt        string
+	modelAnswer string
+	rubric      []string
+	explFmt     string
+	trapFmt     string
+	diff        string
+	maxMarks    int
+}
+
+func generateDomainQuestions(topic, difficulty, testType string, count int) []*model.QuizQuestion {
 	lower := strings.ToLower(topic)
 
 	// 1. Computer Science & Programming
@@ -854,10 +1357,11 @@ func generateDomainQuestions(topic, difficulty string, count int) []*model.QuizQ
 		strings.Contains(lower, "virus") || strings.Contains(lower, "plant") ||
 		strings.Contains(lower, "animal") || strings.Contains(lower, "ecology")
 
-	var templates []domainQuizTemplate
+	var mcqTemplates []domainQuizTemplate
+	var subjTemplates []domainSubjectiveTemplate
 
 	if isCS {
-		templates = []domainQuizTemplate{
+		mcqTemplates = []domainQuizTemplate{
 			{
 				qFmt: "In **%s**, what is the primary benefit of modular architectural design and function decomposition?",
 				opts: []string{
@@ -885,19 +1389,6 @@ func generateDomainQuestions(topic, difficulty string, count int) []*model.QuizQ
 				diff:    "medium",
 			},
 			{
-				qFmt: "What is a frequent cause of production crashes or memory corruption when working with **%s**?",
-				opts: []string{
-					"A) Failing to validate null/nil references, boundary off-by-one indices, and unclosed resources",
-					"B) Utilizing strongly typed variables and deterministic compile-time interfaces",
-					"C) Structuring code into pure idempotent functions without side-effects",
-					"D) Enabling compiler optimization flags during the production build cycle",
-				},
-				correct: 0,
-				explFmt: "In %s, unhandled edge conditions such as nil dereferences, unclosed descriptors, or concurrent data races produce unpredictable crashes.",
-				trapFmt: "Always release allocated resources deterministically using cleanup patterns (e.g. defer, using, or finally blocks).",
-				diff:    "medium",
-			},
-			{
 				qFmt: "In concurrent or asynchronous environments involving **%s**, how are data races and state corruption prevented?",
 				opts: []string{
 					"A) Through synchronization primitives (mutexes, locks) or message-passing channels and immutability",
@@ -910,22 +1401,38 @@ func generateDomainQuestions(topic, difficulty string, count int) []*model.QuizQ
 				trapFmt: "Race conditions are notoriously non-deterministic; they rarely show up during simple local testing without race detector tooling.",
 				diff:    "hard",
 			},
+		}
+
+		subjTemplates = []domainSubjectiveTemplate{
 			{
-				qFmt: "Which testing methodology provides the highest confidence when deploying complex logic in **%s**?",
-				opts: []string{
-					"A) Automated table-driven unit and integration tests covering boundary conditions and error pathways",
-					"B) A single manual run verifying only the happy path on a developer workstation",
-					"C) Disabling automated checks and testing directly on end users in production",
-					"D) Relying exclusively on syntax highlighting and static lint formatting",
+				qFmt:        "Explain the core architectural principles of **%s**. Discuss how state mutation is governed and compare its concurrency or execution model with traditional blocking architectures.",
+				modelAnswer: "Core architecture in " + topic + " emphasizes separation of concerns, deterministic data flow, and controlled state mutations. In concurrent environments, race conditions are mitigated via synchronization primitives (mutexes/locks) or message channels, preventing dirty reads and torn writes. Context-switching and non-blocking I/O event loops minimize idle thread overhead.",
+				rubric: []string{
+					"2 marks: Architectural breakdown and component separation",
+					"2 marks: State mutation control, thread safety, and concurrency mechanisms",
+					"1 mark: Practical trade-offs and performance implications under high throughput",
 				},
-				correct: 0,
-				explFmt: "Comprehensive test suites for %s assert both valid and erroneous inputs to guarantee resilience against edge-case anomalies.",
-				trapFmt: "High code line coverage does not ensure correctness if boundary edge-cases and error branches are omitted.",
-				diff:    "hard",
+				explFmt:  "A rigorous response must contrast blocking I/O with non-blocking event-driven paradigms and identify synchronization primitives.",
+				trapFmt:  "Do not treat asynchronous programming as automatically multi-threaded; single-threaded event loops (e.g., Node.js/Dart) differ fundamentally from thread pools.",
+				diff:     "medium",
+				maxMarks: 5,
+			},
+			{
+				qFmt:        "Analyze the time and space complexity trade-offs encountered when scaling algorithms in **%s**. How do memory allocation overheads (heap vs stack) and CPU cache locality influence overall real-world latency?",
+				modelAnswer: "Asymptotic complexity $O(N)$ predicts scaling growth, but real-world latency is heavily dominated by CPU hardware architecture. Stack allocations are contiguous, cache-friendly, and free from garbage collection overhead, whereas frequent heap allocations induce fragmentation and cache misses. Optimal systems utilize contiguous array structures to exploit L1/L2 cache prefetching.",
+				rubric: []string{
+					"2 marks: Asymptotic complexity derivations ($O(N)$ vs $O(N^2)$)",
+					"2 marks: Heap vs Stack memory mechanics and allocation overheads",
+					"1 mark: CPU cache line alignment and hardware prefetching dynamics",
+				},
+				explFmt:  "Theoretical complexity must be coupled with hardware realities including memory hierarchy and cache locality.",
+				trapFmt:  "Confusing worst-case asymptotic bounds with constant-factor cache miss penalties.",
+				diff:     "hard",
+				maxMarks: 5,
 			},
 		}
 	} else if isBio {
-		templates = []domainQuizTemplate{
+		mcqTemplates = []domainQuizTemplate{
 			{
 				qFmt: "What is the primary governing function and biological significance of **%s** in living organisms?",
 				opts: []string{
@@ -938,19 +1445,6 @@ func generateDomainQuestions(topic, difficulty string, count int) []*model.QuizQ
 				explFmt: "In %s, precise molecular signaling and enzymatic catalysis regulate internal conditions to preserve cellular homeostasis.",
 				trapFmt: "Do not confuse positive feedback cascades with standard negative homeostatic regulation.",
 				diff:    "easy",
-			},
-			{
-				qFmt: "How do variations in pH and ambient temperature typically influence biological processes in **%s**?",
-				opts: []string{
-					"A) By altering protein tertiary conformation and shifting enzymatic catalytic reaction rates",
-					"B) They have zero influence on molecular folding or reaction kinetics",
-					"C) By permanently reversing the thermodynamic direction of cellular respiration",
-					"D) By instantaneously eliminating genetic nucleotide sequences",
-				},
-				correct: 0,
-				explFmt: "Enzymatic and cellular machinery in %s operates within narrow optimal pH and temperature ranges; deviations cause denaturation.",
-				trapFmt: "Denaturation disrupts secondary and tertiary folding without breaking the primary covalent peptide bonds.",
-				diff:    "medium",
 			},
 			{
 				qFmt: "Which factor primarily limits the rate of biochemical transport or transformation in **%s**?",
@@ -966,9 +1460,24 @@ func generateDomainQuestions(topic, difficulty string, count int) []*model.QuizQ
 				diff:    "hard",
 			},
 		}
+
+		subjTemplates = []domainSubjectiveTemplate{
+			{
+				qFmt:        "Explain the biochemical pathways and homeostatic regulation mechanisms governing **%s**. Detail the role of feedback inhibition and enzyme kinetics in maintaining cellular balance.",
+				modelAnswer: "Regulation of " + topic + " relies on allosteric enzyme kinetics and negative feedback loops. When end-product concentrations exceed threshold levels, allosteric inhibitors bind regulatory enzyme domains, altering active site conformation ($V_{max}$ or $K_m$) to conserve energetic substrates and prevent metabolic toxicity.",
+				rubric: []string{
+					"2 marks: Biochemical pathway description and key catalytic steps",
+					"2 marks: Negative feedback loops and allosteric kinetics ($V_{max}$ and $K_m$)",
+					"1 mark: Physiological homeostatic significance in cellular survival",
+				},
+				explFmt:  "Provide clear molecular explanations of negative feedback and Michaelis-Menten kinetic modulation.",
+				trapFmt:  "Failing to distinguish between competitive inhibition (affects $K_m$) and non-competitive allosteric inhibition (affects $V_{max}$).",
+				diff:     "medium",
+				maxMarks: 5,
+			},
+		}
 	} else {
-		// Academic General & Conceptual Mastery (Applicable to Science, Humanities, Math, and Professional Exams)
-		templates = []domainQuizTemplate{
+		mcqTemplates = []domainQuizTemplate{
 			{
 				qFmt: "What constitutes the foundational principle and governing core of **%s**?",
 				opts: []string{
@@ -983,32 +1492,6 @@ func generateDomainQuestions(topic, difficulty string, count int) []*model.QuizQ
 				diff:    "easy",
 			},
 			{
-				qFmt: "When applying principles of **%s** to complex real-world scenarios, which practice delivers optimal results?",
-				opts: []string{
-					"A) Systematic decomposition into primary variables, validating edge cases, and structured verification",
-					"B) Making broad unsubstantiated assumptions without validating boundary criteria",
-					"C) Treating interdependent system variables as completely disconnected and isolated",
-					"D) Relying exclusively on anecdotal observations rather than verified standards",
-				},
-				correct: 0,
-				explFmt: "Rigorous execution in %s requires decomposing multi-factor problems into cohesive units and validating operational assumptions.",
-				trapFmt: "Do not extrapolate simplified ideal conditions into regimes where non-ideal parasitic factors dominate.",
-				diff:    "medium",
-			},
-			{
-				qFmt: "In competitive and academic examinations, what is the most frequent misconception regarding **%s**?",
-				opts: []string{
-					"A) Misapplying generalized formulas or rules outside their validated operational domain",
-					"B) Verifying dimensional consistency and physical boundary limits before finalizing answers",
-					"C) Step-by-step mathematical or logical validation from established definitions",
-					"D) Assuming that real-world problems require structured analytical solutions",
-				},
-				correct: 0,
-				explFmt: "Students frequently lose marks in %s by applying standard formulas to problems where prerequisite boundary conditions are not satisfied.",
-				trapFmt: "Always verify that all foundational criteria are met before invoking specialized theorems or shortcuts.",
-				diff:    "medium",
-			},
-			{
 				qFmt: "How does the theoretical framework of **%s** evolve when advancing from basic models to advanced real-world systems?",
 				opts: []string{
 					"A) Incorporates higher-order coupling, non-linear dynamics, and real-world boundary constraints",
@@ -1021,40 +1504,83 @@ func generateDomainQuestions(topic, difficulty string, count int) []*model.QuizQ
 				trapFmt: "Linear first-order approximations break down rapidly outside small-signal perturbation limits.",
 				diff:    "hard",
 			},
+		}
+
+		subjTemplates = []domainSubjectiveTemplate{
 			{
-				qFmt: "Which evaluative metric confirms true conceptual mastery of **%s** rather than surface-level memorization?",
-				opts: []string{
-					"A) Ability to derive solutions from first principles and accurately diagnose subtle edge-case traps",
-					"B) Rote memorization of final formulas without comprehension of their origins",
-					"C) Selecting answer options solely based on paragraph length or unfamiliar vocabulary",
-					"D) Disregarding units, constraints, and sanity checks on final calculations",
+				qFmt:        "From first principles, derive and critically evaluate the governing theoretical framework of **%s**. What are the primary boundary assumptions, and how does the model behave when those assumptions are relaxed?",
+				modelAnswer: "The analytical framework of " + topic + " is formulated upon fundamental conservation laws and boundary axioms. Under idealized conditions, first-order linear interactions dominate. However, real-world systems exhibit higher-order coupling, non-linear dissipation, and boundary edge effects that necessitate perturbation corrections and numerical validations.",
+				rubric: []string{
+					"2 marks: First-principles derivation and conceptual axioms",
+					"2 marks: Boundary condition validation and breakdown regimes",
+					"1 mark: Practical synthesis and real-world empirical adjustments",
 				},
-				correct: 0,
-				explFmt: "True expertise in %s is demonstrated through first-principles reasoning, diagnostic rigor, and identifying examiner traps.",
-				trapFmt: "Always execute a sanity check on magnitude, sign, and boundary limits before submitting your final response.",
-				diff:    "hard",
+				explFmt:  "Explain both the idealized model and the mathematical/practical implications when operational constraints fail.",
+				trapFmt:  "Applying idealized formulas in domains where non-linear parasitic effects dominate.",
+				diff:     "medium",
+				maxMarks: 5,
 			},
 		}
 	}
 
 	var results []*model.QuizQuestion
+
 	for i := 0; i < count; i++ {
-		t := templates[i%len(templates)]
-		diff := difficulty
-		if diff == "adaptive" || diff == "" {
-			diff = t.diff
+		isSubjectiveThis := false
+		if testType == "subjective" {
+			isSubjectiveThis = true
+		} else if testType == "mixed" {
+			// In mixed mode: alternating or ~40% subjective
+			if i%2 == 1 && len(subjTemplates) > 0 {
+				isSubjectiveThis = true
+			}
 		}
-		results = append(results, &model.QuizQuestion{
-			ID:                 uuid.New().String(),
-			QuestionText:       fmt.Sprintf(t.qFmt, topic),
-			Options:            t.opts,
-			CorrectOptionIndex: t.correct,
-			Explanation:        fmt.Sprintf(t.explFmt, topic),
-			TrapWarning:        t.trapFmt,
-			Difficulty:         diff,
-			Topic:              topic,
-			CreatedAt:          time.Now(),
-		})
+
+		if isSubjectiveThis && len(subjTemplates) > 0 {
+			st := subjTemplates[i%len(subjTemplates)]
+			diff := difficulty
+			if diff == "adaptive" || diff == "" {
+				diff = st.diff
+			}
+			maxM := st.maxMarks
+			if diff == "hard" {
+				maxM = 10
+			}
+			results = append(results, &model.QuizQuestion{
+				ID:                 uuid.New().String(),
+				QuestionType:       "subjective",
+				QuestionText:       fmt.Sprintf(st.qFmt, topic),
+				Options:            []string{},
+				CorrectOptionIndex: -1,
+				ModelAnswer:        st.modelAnswer,
+				Rubric:             st.rubric,
+				MaxMarks:           maxM,
+				Explanation:        fmt.Sprintf(st.explFmt, topic),
+				TrapWarning:        st.trapFmt,
+				Difficulty:         diff,
+				Topic:              topic,
+				CreatedAt:          time.Now(),
+			})
+		} else {
+			mt := mcqTemplates[i%len(mcqTemplates)]
+			diff := difficulty
+			if diff == "adaptive" || diff == "" {
+				diff = mt.diff
+			}
+			results = append(results, &model.QuizQuestion{
+				ID:                 uuid.New().String(),
+				QuestionType:       "mcq",
+				QuestionText:       fmt.Sprintf(mt.qFmt, topic),
+				Options:            mt.opts,
+				CorrectOptionIndex: mt.correct,
+				MaxMarks:           1,
+				Explanation:        fmt.Sprintf(mt.explFmt, topic),
+				TrapWarning:        mt.trapFmt,
+				Difficulty:         diff,
+				Topic:              topic,
+				CreatedAt:          time.Now(),
+			})
+		}
 	}
 
 	return results

@@ -196,6 +196,7 @@ type DiagramRequest struct {
 	Model       string `json:"model"`
 	AILanguage  string `json:"ai_language,omitempty"`
 	Language    string `json:"language,omitempty"`
+	Force       bool   `json:"force,omitempty"`
 }
 
 type MindMapNode struct {
@@ -212,6 +213,7 @@ type MindMapNode struct {
 	KeyTakeaway  string            `json:"key_takeaway,omitempty"`
 	ExamTrap     string            `json:"exam_trap,omitempty"`
 	VivaInsight  string            `json:"viva_insight,omitempty"`
+	Mnemonic     string            `json:"mnemonic,omitempty"`
 	Importance   int               `json:"importance,omitempty"`
 	Badge        string            `json:"badge,omitempty"`
 	Metrics      map[string]string `json:"metrics,omitempty"`
@@ -238,6 +240,7 @@ type GraphNode struct {
 	KeyTakeaway  string            `json:"key_takeaway,omitempty"`
 	ExamTrap     string            `json:"exam_trap,omitempty"`
 	VivaInsight  string            `json:"viva_insight,omitempty"`
+	Mnemonic     string            `json:"mnemonic,omitempty"`
 	Importance   int               `json:"importance,omitempty"`
 	Badge        string            `json:"badge,omitempty"`
 	Metrics      map[string]string `json:"metrics,omitempty"`
@@ -308,18 +311,22 @@ type ExportMindMapPDFRequest struct {
 }
 
 type ExpandNodeRequest struct {
-	Concept     string `json:"concept" validate:"required"`
-	NodeID      string `json:"node_id" validate:"required"`
-	NodeLabel   string `json:"node_label" validate:"required"`
-	NodeDetails string `json:"node_details,omitempty"`
-	BranchColor string `json:"branch_color,omitempty"`
-	MindMapID   string `json:"mind_map_id,omitempty"`
-	NodeDepth   int    `json:"node_depth,omitempty"`
-	Force       bool   `json:"force,omitempty"`
-	Provider    string `json:"provider,omitempty"`
-	Model       string `json:"model,omitempty"`
-	AILanguage  string `json:"ai_language,omitempty"`
-	Language    string `json:"language,omitempty"`
+	Concept      string  `json:"concept" validate:"required"`
+	NodeID       string  `json:"node_id" validate:"required"`
+	NodeLabel    string  `json:"node_label" validate:"required"`
+	NodeDetails  string  `json:"node_details,omitempty"`
+	BranchColor  string  `json:"branch_color,omitempty"`
+	MindMapID    string  `json:"mind_map_id,omitempty"`
+	NodeDepth    int     `json:"node_depth,omitempty"`
+	Force        bool    `json:"force,omitempty"`
+	Provider     string  `json:"provider,omitempty"`
+	Model        string  `json:"model,omitempty"`
+	AILanguage   string  `json:"ai_language,omitempty"`
+	Language     string  `json:"language,omitempty"`
+	ParentX      float64 `json:"parent_x,omitempty"`
+	ParentY      float64 `json:"parent_y,omitempty"`
+	ParentWidth  float64 `json:"parent_width,omitempty"`
+	ParentHeight float64 `json:"parent_height,omitempty"`
 }
 
 type ExpandNodeResponse struct {
