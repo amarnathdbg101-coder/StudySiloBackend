@@ -107,8 +107,8 @@ RULES FOR EFFECTIVE ACTIVE RECALL:
 		userPrompt += fmt.Sprintf("\n\nBase Study Material / Notes:\n%s", req.Content)
 	}
 
-	// ⚡ Fast Context Timeout (10s max): Guarantees the student never experiences long loading times or hangs
-	aiCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// ⚡ Fast Context Timeout (20s max): Guarantees the student gets real AI generation with instant response
+	aiCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 
 	var aiResult aiFlashcardGenerationResult

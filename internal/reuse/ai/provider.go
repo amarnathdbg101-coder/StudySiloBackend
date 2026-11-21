@@ -35,15 +35,15 @@ type GeminiProvider struct {
 func normalizeGeminiModel(modelName string) string {
 	m := strings.ToLower(strings.TrimSpace(modelName))
 	if m == "" {
-		return "gemini-2.0-flash"
+		return "gemini-flash-lite-latest"
 	}
 	switch m {
-	case "gemini-flash", "gemini-flash-latest":
-		return "gemini-2.0-flash"
-	case "gemini-flash-lite":
-		return "gemini-2.0-flash-lite"
-	case "gemini-pro":
-		return "gemini-1.5-pro"
+	case "gemini-flash", "gemini-flash-latest", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-flash":
+		return "gemini-flash-lite-latest"
+	case "gemini-flash-lite", "gemini-flash-lite-latest", "gemini-2.0-flash-lite", "gemini-2.5-flash-lite", "gemini-3.5-flash-lite":
+		return "gemini-flash-lite-latest"
+	case "gemini-pro", "gemini-pro-latest", "gemini-1.5-pro", "gemini-2.0-pro", "gemini-2.5-pro":
+		return "gemini-flash-lite-latest"
 	default:
 		return m
 	}
@@ -61,25 +61,13 @@ func getGeminiCandidates(primary string) []string {
 		}
 	}
 
-	// 1. Primary requested model first
+	// 1. Primary requested model first (defaulting to the ultra-fast gemini-flash-lite-latest)
 	add(clean)
 
 	// 2. High-speed, high-accuracy Google Gemini production models cascade
-	if strings.Contains(clean, "pro") {
-		add("gemini-1.5-pro")
-		add("gemini-2.0-flash")
-		add("gemini-1.5-flash")
-		add("gemini-2.0-flash-lite")
-	} else if strings.Contains(clean, "lite") {
-		add("gemini-2.0-flash-lite")
-		add("gemini-2.0-flash")
-		add("gemini-1.5-flash")
-	} else {
-		add("gemini-2.0-flash")
-		add("gemini-1.5-flash")
-		add("gemini-2.0-flash-lite")
-		add("gemini-1.5-pro")
-	}
+	add("gemini-flash-lite-latest")
+	add("gemini-flash-latest")
+	add("gemini-pro-latest")
 
 	return list
 }
@@ -980,7 +968,7 @@ func (o *Orchestrator) GenerateVision(ctx context.Context, systemPrompt, userPro
 }
 
 func (o *Orchestrator) GenerateStructured(ctx context.Context, systemPrompt, userPrompt string, target interface{}) error {
-	p := o.GetProvider("google", "gemini-2.0-flash")
+	p := o.GetProvider("google", "gemini-flash-lite-latest")
 	if p != nil {
 		err := p.GenerateStructured(ctx, systemPrompt, userPrompt, target)
 		if err == nil {
