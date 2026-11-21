@@ -35,15 +35,15 @@ type GeminiProvider struct {
 func normalizeGeminiModel(modelName string) string {
 	m := strings.ToLower(strings.TrimSpace(modelName))
 	if m == "" {
-		return "gemini-3.5-flash-lite"
+		return "gemini-2.0-flash"
 	}
 	switch m {
 	case "gemini-flash", "gemini-flash-latest":
-		return "gemini-3.8-flash"
+		return "gemini-2.0-flash"
 	case "gemini-flash-lite":
-		return "gemini-3.5-flash-lite"
+		return "gemini-2.0-flash-lite"
 	case "gemini-pro":
-		return "gemini-3.1-pro-preview"
+		return "gemini-1.5-pro"
 	default:
 		return m
 	}
@@ -64,20 +64,21 @@ func getGeminiCandidates(primary string) []string {
 	// 1. Primary requested model first
 	add(clean)
 
-	// 2. Fallback candidates cascade
+	// 2. High-speed, high-accuracy Google Gemini production models cascade
 	if strings.Contains(clean, "pro") {
-		add("gemini-3.8-flash")
-		add("gemini-3.7-flash")
-		add("gemini-3.5-flash-lite")
+		add("gemini-1.5-pro")
+		add("gemini-2.0-flash")
+		add("gemini-1.5-flash")
+		add("gemini-2.0-flash-lite")
 	} else if strings.Contains(clean, "lite") {
-		add("gemini-3.8-flash")
-		add("gemini-3.7-flash")
-		add("gemini-3.5-flash")
+		add("gemini-2.0-flash-lite")
+		add("gemini-2.0-flash")
+		add("gemini-1.5-flash")
 	} else {
-		add("gemini-3.7-flash")
-		add("gemini-3.6-flash")
-		add("gemini-3.5-flash")
-		add("gemini-3.5-flash-lite")
+		add("gemini-2.0-flash")
+		add("gemini-1.5-flash")
+		add("gemini-2.0-flash-lite")
+		add("gemini-1.5-pro")
 	}
 
 	return list
@@ -517,11 +518,102 @@ func (g *GeminiProvider) generateVision(ctx context.Context, systemPrompt, userP
 	return "", errors.New("empty response from Gemini Vision")
 }
 
-func (g *GeminiProvider) GenerateStructured(ctx context.Context, systemPrompt, userPrompt string, target interface{}) error {
-	fullSystemPrompt := systemPrompt + "\nIMPORTANT: You MUST respond ONLY with valid JSON. Do not include markdown code block markers (like ```json), commentary, or extra text."
-	text, err := g.GenerateText(ctx, fullSystemPrompt, userPrompt)
+func (g *GeminiProvider) generateTextJSON(ctx context.Context, systemPrompt, userPrompt string, remainingKeyAttempts int) (string, error) {
+	key, err := g.rotator.GetNextKey()
 	if err != nil {
-		return err
+		return "", err
+	}
+
+	candidateModels := getGeminiCandidates(g.model)
+	var lastErr error
+
+	for _, mod := range candidateModels {
+		url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", mod)
+
+		reqBody := map[string]interface{}{
+			"system_instruction": map[string]interface{}{
+				"parts": []map[string]interface{}{
+					{"text": systemPrompt},
+				},
+			},
+			"contents": []map[string]interface{}{
+				{
+					"role": "user",
+					"parts": []map[string]interface{}{
+						{"text": userPrompt},
+					},
+				},
+			},
+			"generationConfig": map[string]interface{}{
+				"temperature":        0.2,
+				"topP":               0.95,
+				"maxOutputTokens":    8192,
+				"response_mime_type": "application/json",
+			},
+		}
+
+		raw, err := json.Marshal(reqBody)
+		if err != nil {
+			return "", err
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(raw))
+		if err != nil {
+			return "", err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("x-goog-api-key", key)
+
+		resp, err := g.httpClient.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode == http.StatusOK {
+			g.rotator.MarkSuccess(key)
+			var geminiResp struct {
+				Candidates []struct {
+					Content struct {
+						Parts []struct {
+							Text string `json:"text"`
+						} `json:"parts"`
+					} `json:"content"`
+				} `json:"candidates"`
+			}
+			if err := json.Unmarshal(bodyBytes, &geminiResp); err == nil && len(geminiResp.Candidates) > 0 && len(geminiResp.Candidates[0].Content.Parts) > 0 {
+				return geminiResp.Candidates[0].Content.Parts[0].Text, nil
+			}
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			g.rotator.MarkRateLimited(key, 60*time.Second)
+			if remainingKeyAttempts > 1 {
+				return g.generateTextJSON(ctx, systemPrompt, userPrompt, remainingKeyAttempts-1)
+			}
+			return "", fmt.Errorf("gemini rate limit 429: %s", strings.TrimSpace(string(bodyBytes)))
+		}
+
+		lastErr = fmt.Errorf("gemini status %d", resp.StatusCode)
+	}
+
+	if lastErr != nil {
+		return "", lastErr
+	}
+	return "", errors.New("empty response from Gemini JSON")
+}
+
+func (g *GeminiProvider) GenerateStructured(ctx context.Context, systemPrompt, userPrompt string, target interface{}) error {
+	fullSystemPrompt := systemPrompt + "\nIMPORTANT: You MUST respond ONLY with valid JSON conforming strictly to the requested schema. Do not include markdown code block markers (like ```json), commentary, or extra text."
+	text, err := g.generateTextJSON(ctx, fullSystemPrompt, userPrompt, g.rotator.KeyCount())
+	if err != nil {
+		text, err = g.GenerateText(ctx, fullSystemPrompt, userPrompt)
+		if err != nil {
+			return err
+		}
 	}
 
 	return UnmarshalJSONSafe([]byte(text), target)
@@ -880,17 +972,26 @@ func (o *Orchestrator) GenerateVisionWithModel(ctx context.Context, providerName
 }
 
 func (o *Orchestrator) GenerateText(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
-	return o.GenerateTextWithModel(ctx, "google", "gemini-3.5-flash-lite", systemPrompt, userPrompt)
+	return o.GenerateTextWithModel(ctx, "google", "gemini-2.0-flash", systemPrompt, userPrompt)
 }
 
 func (o *Orchestrator) GenerateVision(ctx context.Context, systemPrompt, userPrompt string, imageBytes []byte, mimeType string) (string, error) {
-	return o.GenerateVisionWithModel(ctx, "google", "gemini-3.5-flash-lite", systemPrompt, userPrompt, imageBytes, mimeType)
+	return o.GenerateVisionWithModel(ctx, "google", "gemini-2.0-flash", systemPrompt, userPrompt, imageBytes, mimeType)
 }
 
 func (o *Orchestrator) GenerateStructured(ctx context.Context, systemPrompt, userPrompt string, target interface{}) error {
-	p := o.GetProvider("google", "gemini-3.5-flash-lite")
+	p := o.GetProvider("google", "gemini-2.0-flash")
 	if p != nil {
 		err := p.GenerateStructured(ctx, systemPrompt, userPrompt, target)
+		if err == nil {
+			return nil
+		}
+	}
+
+	// Failover to secondary models if configured
+	pOpenAI := o.GetProvider("openai", "gpt-4o-mini")
+	if pOpenAI != nil {
+		err := pOpenAI.GenerateStructured(ctx, systemPrompt, userPrompt, target)
 		if err == nil {
 			return nil
 		}

@@ -258,7 +258,7 @@ RULES:
 	}
 	modelName := strings.TrimSpace(req.Model)
 	if modelName == "" {
-		modelName = "gemini-3.5-flash-lite"
+		modelName = "gemini-2.0-flash"
 	}
 
 	// Attempt AI generation using orchestrator
